@@ -131,6 +131,19 @@ function teamBadgeClass(teamName: string): string {
   return pastelClasses[hash % pastelClasses.length];
 }
 
+function userTypeBadgeClass(userType: string): string {
+  const pastelClasses = [
+    'bg-pink-100 text-pink-900 border border-pink-200',
+    'bg-cyan-100 text-cyan-900 border border-cyan-200',
+    'bg-lime-100 text-lime-900 border border-lime-200',
+    'bg-orange-100 text-orange-900 border border-orange-200',
+    'bg-indigo-100 text-indigo-900 border border-indigo-200',
+    'bg-teal-100 text-teal-900 border border-teal-200',
+  ];
+  const hash = [...userType].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  return pastelClasses[hash % pastelClasses.length];
+}
+
 function formatDueText(dateStr: string): string {
   const due = new Date(dateStr).getTime();
   const delta = Math.ceil((due - Date.now()) / 86400000);
@@ -773,7 +786,12 @@ function App() {
 
             {activeUser && (
               <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
-                <p className="text-lg font-semibold">Hello, {greetingName} [{greetingUserType}]</p>
+                <p className="flex flex-wrap items-center gap-2 text-lg font-semibold">
+                  <span>Hello, {greetingName}</span>
+                  <span className={`rounded-[3px] px-2 py-0.5 text-xs font-semibold ${userTypeBadgeClass(greetingUserType)}`}>
+                    {greetingUserType}
+                  </span>
+                </p>
                 <p className="mt-1 text-xs text-slate-500">
                   {activeTeamNames.length ? activeTeamNames.join(' • ') : 'No teams assigned'}
                 </p>
