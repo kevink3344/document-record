@@ -11,16 +11,13 @@ import {
   Download,
   File,
   FileCheck2,
-  Filter,
   FolderOpen,
   GraduationCap,
   LayoutGrid,
-  LayoutList,
   LayoutPanelLeft,
   Moon,
   Pin,
   PinOff,
-  Plus,
   Search,
   Settings,
   Shield,
@@ -32,7 +29,6 @@ import {
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 
 type Role = 'ADMINISTRATOR' | 'TEAM_MANAGER' | 'USER';
-type ViewMode = 'TABLE' | 'CARD';
 
 type LookupUser = {
   id: number;
@@ -288,7 +284,6 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [search, setSearch] = useState('');
-  const [viewMode, setViewMode] = useState<ViewMode>('TABLE');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activePage, setActivePage] = useState('Dashboard');
   const [notice, setNotice] = useState('');
@@ -516,6 +511,29 @@ function App() {
     History: <Clock size={15} />,
     'School Buildings': <Building2 size={15} />,
   };
+
+  const greetingName = useMemo(() => {
+    if (!activeUser?.full_name) return 'there';
+    return activeUser.full_name.split(' ')[0] || activeUser.full_name;
+  }, [activeUser?.full_name]);
+
+  const greetingUserType = useMemo(() => {
+    return activeUser?.user_type_name || activeUser?.role || 'USER';
+  }, [activeUser?.user_type_name, activeUser?.role]);
+
+  const activeTeamNames = useMemo(() => {
+    if (!activeUser) return [] as string[];
+    if (activeUser.role === 'ADMINISTRATOR') {
+      return teams.map((team) => team.name).filter(Boolean);
+    }
+    if (activeUser.role === 'TEAM_MANAGER') {
+      return teams
+        .filter((team) => team.manager_user_ids.includes(activeUser.id))
+        .map((team) => team.name)
+        .filter(Boolean);
+    }
+    return Array.from(new Set(documents.map((doc) => doc.team_name).filter(Boolean)));
+  }, [activeUser, teams, documents]);
 
   const handleAcknowledge = async () => {
     if (!selectedDocId || !activeUser) return;
@@ -748,35 +766,19 @@ function App() {
               </div>
             </div>
 
-            <div className="flex h-12 items-center gap-2 border-t border-white/20 px-4">
-              <button
-                className={`rounded-[3px] border px-3 py-1.5 text-xs ${viewMode === 'TABLE' ? 'border-white bg-white/15' : 'border-white/35'}`}
-                onClick={() => setViewMode('TABLE')}
-              >
-                <LayoutList size={14} className="mr-1 inline" /> Table
-              </button>
-              <button
-                className={`rounded-[3px] border px-3 py-1.5 text-xs ${viewMode === 'CARD' ? 'border-white bg-white/15' : 'border-white/35'}`}
-                onClick={() => setViewMode('CARD')}
-              >
-                <LayoutGrid size={14} className="mr-1 inline" /> Card
-              </button>
-              <button className="rounded-[3px] border border-white/35 px-3 py-1.5 text-xs">
-                <Filter size={14} className="mr-1 inline" /> Filter
-              </button>
-              <div className="ml-auto space-x-2">
-                <button className="rounded-[3px] border border-white/35 px-3 py-1.5 text-xs">
-                  <Plus size={14} className="mr-1 inline" /> NEW
-                </button>
-                <button className="rounded-[3px] border border-white/35 px-3 py-1.5 text-xs">
-                  <Download size={14} className="mr-1 inline" /> EXPORT
-                </button>
-              </div>
-            </div>
           </header>
 
           <div className="space-y-4 p-4">
             {notice && <div className="rounded-[3px] border border-blue-200 bg-blue-50 p-2 text-xs text-blue-900">{notice}</div>}
+
+            {activeUser && (
+              <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
+                <p className="text-lg font-semibold">Hello, {greetingName} [{greetingUserType}]</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {activeTeamNames.length ? activeTeamNames.join(' • ') : 'No teams assigned'}
+                </p>
+              </section>
+            )}
 
             {settingsOpen && (
               <div className="grid grid-cols-2 gap-2 rounded-[3px] border border-slate-300 bg-[var(--theme-card)] p-3 text-xs dark:border-slate-700">
@@ -1619,58 +1621,39 @@ function App() {
                   </div>
                 </section>
 
-                {viewMode === 'TABLE' ? (
-                  <section className="overflow-x-auto rounded-[3px] border border-slate-200 bg-[var(--theme-card)] dark:border-slate-700">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                        <tr>
-                          <th className="px-3 py-2">Document</th>
-                          <th className="px-3 py-2">Team</th>
-                          <th className="px-3 py-2">User Types</th>
-                          <th className="px-3 py-2">Due</th>
-                          <th className="px-3 py-2">Status</th>
+                <section className="overflow-x-auto rounded-[3px] border border-slate-200 bg-[var(--theme-card)] dark:border-slate-700">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      <tr>
+                        <th className="px-3 py-2">Document</th>
+                        <th className="px-3 py-2">Team</th>
+                        <th className="px-3 py-2">User Types</th>
+                        <th className="px-3 py-2">Due</th>
+                        <th className="px-3 py-2">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredDocuments.map((doc) => (
+                        <tr
+                          key={doc.id}
+                          className="cursor-pointer border-t border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900"
+                          onClick={() => setSelectedDocId(doc.id)}
+                        >
+                          <td className="px-3 py-2">
+                            <p className="font-semibold">{doc.title}</p>
+                            <p className="text-xs text-slate-500">{doc.schedule} • {doc.document_type}</p>
+                          </td>
+                          <td className="px-3 py-2">{doc.team_name}</td>
+                          <td className="px-3 py-2">{doc.user_types}</td>
+                          <td className="px-3 py-2">{formatDueText(doc.due_date)}</td>
+                          <td className="px-3 py-2">
+                            <span className={`rounded-[3px] px-2 py-1 text-xs font-semibold ${badgeClass(doc.status)}`}>{doc.status}</span>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody>
-                        {filteredDocuments.map((doc) => (
-                          <tr
-                            key={doc.id}
-                            className="cursor-pointer border-t border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900"
-                            onClick={() => setSelectedDocId(doc.id)}
-                          >
-                            <td className="px-3 py-2">
-                              <p className="font-semibold">{doc.title}</p>
-                              <p className="text-xs text-slate-500">{doc.schedule} • {doc.document_type}</p>
-                            </td>
-                            <td className="px-3 py-2">{doc.team_name}</td>
-                            <td className="px-3 py-2">{doc.user_types}</td>
-                            <td className="px-3 py-2">{formatDueText(doc.due_date)}</td>
-                            <td className="px-3 py-2">
-                              <span className={`rounded-[3px] px-2 py-1 text-xs font-semibold ${badgeClass(doc.status)}`}>{doc.status}</span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </section>
-                ) : (
-                  <section className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
-                    {filteredDocuments.map((doc) => (
-                      <button
-                        key={doc.id}
-                        onClick={() => setSelectedDocId(doc.id)}
-                        className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-3 text-left hover:border-slate-400 dark:border-slate-700"
-                      >
-                        <div className="mb-1 flex items-center justify-between">
-                          <p className="font-semibold">{doc.title}</p>
-                          <span className={`rounded-[3px] px-2 py-1 text-xs font-semibold ${badgeClass(doc.status)}`}>{doc.status}</span>
-                        </div>
-                        <p className="text-xs text-slate-600 dark:text-slate-400">{doc.team_name} • {doc.user_types}</p>
-                        <p className="mt-2 text-xs text-slate-500">{formatDueText(doc.due_date)}</p>
-                      </button>
-                    ))}
-                  </section>
-                )}
+                      ))}
+                    </tbody>
+                  </table>
+                </section>
               </>
             )}
           </div>
