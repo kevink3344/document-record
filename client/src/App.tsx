@@ -144,6 +144,12 @@ function userTypeBadgeClass(userType: string): string {
   return pastelClasses[hash % pastelClasses.length];
 }
 
+function roleBadgeClass(role: Role): string {
+  if (role === 'ADMINISTRATOR') return 'bg-blue-100 text-blue-900 border border-blue-200';
+  if (role === 'TEAM_MANAGER') return 'bg-amber-100 text-amber-900 border border-amber-200';
+  return 'bg-emerald-100 text-emerald-900 border border-emerald-200';
+}
+
 function formatDueText(dateStr: string): string {
   const due = new Date(dateStr).getTime();
   const delta = Math.ceil((due - Date.now()) / 86400000);
@@ -790,6 +796,9 @@ function App() {
                   <span>Hello, {greetingName}</span>
                   <span className={`rounded-[3px] px-2 py-0.5 text-xs font-semibold ${userTypeBadgeClass(greetingUserType)}`}>
                     {greetingUserType}
+                  </span>
+                  <span className={`rounded-[3px] px-2 py-0.5 text-xs font-semibold ${roleBadgeClass(activeUser.role)}`}>
+                    {activeUser.role}
                   </span>
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
