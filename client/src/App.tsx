@@ -1205,7 +1205,13 @@ function App() {
                         placeholder="Description"
                         value={docForm.description}
                         onChange={(e) => setDocForm((p) => ({ ...p, description: e.target.value }))}
-                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700 md:col-span-3"
+                      />
+                      <input
+                        placeholder="Document URL"
+                        value={docForm.fileUrl}
+                        onChange={(e) => setDocForm((p) => ({ ...p, fileUrl: e.target.value }))}
+                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700 md:col-span-3"
                       />
                       <input
                         placeholder="Content"
@@ -1244,12 +1250,6 @@ function App() {
                         type="date"
                         value={docForm.endDate}
                         onChange={(e) => setDocForm((p) => ({ ...p, endDate: e.target.value }))}
-                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
-                      />
-                      <input
-                        placeholder="File URL"
-                        value={docForm.fileUrl}
-                        onChange={(e) => setDocForm((p) => ({ ...p, fileUrl: e.target.value }))}
                         className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
                       />
                       <select
@@ -1441,7 +1441,13 @@ function App() {
                     placeholder="Description"
                     value={teamDocForm.description}
                     onChange={(e) => setTeamDocForm((p) => ({ ...p, description: e.target.value }))}
-                    className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                    className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700 md:col-span-3"
+                  />
+                  <input
+                    placeholder="Document URL"
+                    value={teamDocForm.fileUrl}
+                    onChange={(e) => setTeamDocForm((p) => ({ ...p, fileUrl: e.target.value }))}
+                    className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700 md:col-span-3"
                   />
                   <input
                     placeholder="Content"
@@ -1470,12 +1476,6 @@ function App() {
                     type="date"
                     value={teamDocForm.endDate}
                     onChange={(e) => setTeamDocForm((p) => ({ ...p, endDate: e.target.value }))}
-                    className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
-                  />
-                  <input
-                    placeholder="File URL"
-                    value={teamDocForm.fileUrl}
-                    onChange={(e) => setTeamDocForm((p) => ({ ...p, fileUrl: e.target.value }))}
                     className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
                   />
                   <select
