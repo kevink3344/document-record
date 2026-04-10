@@ -1,11 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
+  Activity,
+  BarChart2,
   Bell,
+  BookOpen,
+  Building2,
   ChartLine,
+  Clock,
   Download,
+  File,
   FileCheck2,
   Filter,
+  FolderOpen,
+  GraduationCap,
   LayoutGrid,
   LayoutList,
   LayoutPanelLeft,
@@ -17,6 +25,9 @@ import {
   Settings,
   Shield,
   Sun,
+  Tag,
+  User,
+  Users,
 } from 'lucide-react';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 
@@ -488,6 +499,21 @@ function App() {
     if (activeUser.role === 'TEAM_MANAGER') return ['Dashboard', 'My Team Docs', 'Activity', 'Reports'];
     return ['Dashboard', 'My Documents', 'History'];
   }, [activeUser]);
+  const navIconMap: Record<string, React.ReactNode> = {
+    Dashboard: <LayoutGrid size={15} />,
+    Teams: <Users size={15} />,
+    'User Types': <Tag size={15} />,
+    Schools: <GraduationCap size={15} />,
+    Users: <User size={15} />,
+    Documents: <BookOpen size={15} />,
+    Reports: <BarChart2 size={15} />,
+    Settings: <Settings size={15} />,
+    'My Team Docs': <FolderOpen size={15} />,
+    'My Documents': <File size={15} />,
+    Activity: <Activity size={15} />,
+    History: <Clock size={15} />,
+    'School Buildings': <Building2 size={15} />,
+  };
 
   const handleAcknowledge = async () => {
     if (!selectedDocId || !activeUser) return;
@@ -660,7 +686,7 @@ function App() {
                 onClick={() => setActivePage(item)}
                 className={`flex w-full items-center rounded-[3px] border px-3 py-2 text-left ${activePage === item ? 'border-slate-300 bg-slate-800' : 'border-transparent hover:border-slate-300 hover:bg-slate-800'}`}
               >
-                <LayoutGrid size={15} />
+                {navIconMap[item] ?? <LayoutGrid size={15} />}
                 {!sidebarCollapsed && <span className="ml-2">{item}</span>}
               </button>
             ))}
