@@ -1,5 +1,9 @@
 import express from 'express';
 import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
+import swaggerUi from 'swagger-ui-express';
+import { load } from 'js-yaml';
 import { getDb } from './db';
 
 const app = express();
@@ -9,6 +13,14 @@ app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json());
 
 getDb();
+
+const openApiPath = path.join(__dirname, '../openapi.yaml');
+const openApiDoc = load(fs.readFileSync(openApiPath, 'utf8')) as Record<string, unknown>;
+
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiDoc, { explorer: true }));
+app.get('/api/openapi.yaml', (_req, res) => {
+  res.sendFile(openApiPath);
+});
 
 function toId(value: string | number): number {
   const id = Number(value);

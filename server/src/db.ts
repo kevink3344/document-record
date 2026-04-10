@@ -212,7 +212,7 @@ function seedIfEmpty(): void {
   insertDocTypeLink.run(3, 4);
 
   db.prepare(
-    'INSERT INTO acknowledgments (document_id, user_id, acknowledged_at, comment) VALUES (?, ?, datetime("now", "-10 days"), ?)'
+    "INSERT INTO acknowledgments (document_id, user_id, acknowledged_at, comment) VALUES (?, ?, datetime('now', '-10 days'), ?)"
   ).run(1, 4, 'Read and completed during orientation');
 
   db.prepare(
