@@ -11,6 +11,7 @@ export function getDb(): Database.Database {
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
     initSchema();
+    ensureTeamDescriptionColumn();
     seedIfEmpty();
     syncTeamManagersFromLegacy();
   }
@@ -22,6 +23,7 @@ function initSchema(): void {
     CREATE TABLE IF NOT EXISTS teams (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
+      description TEXT NOT NULL DEFAULT '',
       manager_user_id INTEGER,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (manager_user_id) REFERENCES users(id)
@@ -116,6 +118,14 @@ function initSchema(): void {
       FOREIGN KEY (team_id) REFERENCES teams(id)
     );
   `);
+}
+
+function ensureTeamDescriptionColumn(): void {
+  const columns = db.prepare("PRAGMA table_info('teams')").all() as Array<{ name: string }>;
+  const hasDescription = columns.some((col) => col.name === 'description');
+  if (!hasDescription) {
+    db.exec("ALTER TABLE teams ADD COLUMN description TEXT NOT NULL DEFAULT '';");
+  }
 }
 
 function syncTeamManagersFromLegacy(): void {

@@ -50,6 +50,7 @@ type LookupItem = { id: number; name: string };
 type Team = {
   id: number;
   name: string;
+  description: string;
   manager_user_id: number | null;
   manager_user_ids: number[];
   manager_names?: string;
@@ -182,6 +183,7 @@ function normalizeTeam(raw: Record<string, unknown>): Team {
   return {
     id: Number(raw.id),
     name: String(raw.name ?? ''),
+    description: String(raw.description ?? ''),
     manager_user_id: raw.manager_user_id == null ? null : Number(raw.manager_user_id),
     manager_user_ids: managerUserIds,
     manager_names: String(raw.manager_names ?? ''),
@@ -314,7 +316,7 @@ function App() {
   const [schools, setSchools] = useState<School[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
 
-  const [teamForm, setTeamForm] = useState({ name: '', managerUserIds: [] as number[] });
+  const [teamForm, setTeamForm] = useState({ name: '', description: '', managerUserIds: [] as number[] });
   const [userTypeForm, setUserTypeForm] = useState({ name: '' });
   const [schoolForm, setSchoolForm] = useState({ name: '' });
   const [userForm, setUserForm] = useState({
@@ -606,6 +608,7 @@ function App() {
           method: 'PUT',
           body: JSON.stringify({
             name: payload.name,
+            description: payload.description,
             managerUserIds,
           }),
         });
@@ -811,11 +814,17 @@ function App() {
                       </button>
                     </div>
                     {newForms.teams && (
-                    <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-3">
+                    <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-4">
                       <input
                         placeholder="Team name"
                         value={teamForm.name}
                         onChange={(e) => setTeamForm((p) => ({ ...p, name: e.target.value }))}
+                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      />
+                      <input
+                        placeholder="Description"
+                        value={teamForm.description}
+                        onChange={(e) => setTeamForm((p) => ({ ...p, description: e.target.value }))}
                         className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
                       />
                       <select
@@ -842,10 +851,11 @@ function App() {
                               method: 'POST',
                               body: JSON.stringify({
                                 name: teamForm.name,
+                                description: teamForm.description,
                                 managerUserIds: teamForm.managerUserIds,
                               }),
                             });
-                            setTeamForm({ name: '', managerUserIds: [] });
+                            setTeamForm({ name: '', description: '', managerUserIds: [] });
                             setNewForms((prev) => ({ ...prev, teams: false }));
                           }, 'Team created')
                         }
@@ -860,6 +870,7 @@ function App() {
                         <div key={team.id} className="flex items-center justify-between border border-slate-200 p-2 text-sm dark:border-slate-700">
                           <div>
                             <p className="font-semibold">{team.name}</p>
+                            <p className="text-xs text-slate-500">{team.description || 'No description provided.'}</p>
                             <p className="text-xs text-slate-500">Managers: {team.manager_names || 'Unassigned'}</p>
                           </div>
                           <div className="space-x-2">
@@ -867,6 +878,7 @@ function App() {
                               onClick={() =>
                                 openEditPanel('TEAM', team.id, `Edit Team: ${team.name}`, {
                                   name: team.name,
+                                  description: team.description,
                                   managerUserIds: team.manager_user_ids,
                                 })
                               }
@@ -1702,6 +1714,19 @@ function App() {
                         onChange={(e) =>
                           setEditPanel((prev) =>
                             prev ? { ...prev, payload: { ...prev.payload, name: e.target.value } } : prev
+                          )
+                        }
+                        className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs uppercase text-slate-500">Description</span>
+                      <textarea
+                        rows={3}
+                        value={payloadString('description')}
+                        onChange={(e) =>
+                          setEditPanel((prev) =>
+                            prev ? { ...prev, payload: { ...prev.payload, description: e.target.value } } : prev
                           )
                         }
                         className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"

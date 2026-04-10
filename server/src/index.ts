@@ -41,7 +41,7 @@ app.get('/api/lookups', (_req, res) => {
   const db = getDb();
   const teams = db
     .prepare(
-      `SELECT t.id, t.name, t.manager_user_id,
+      `SELECT t.id, t.name, t.description, t.manager_user_id,
               COALESCE((
                 SELECT json_group_array(tm.user_id)
                 FROM team_managers tm
@@ -71,7 +71,7 @@ app.get('/api/teams', (_req, res) => {
   const db = getDb();
   const rows = db
     .prepare(
-      `SELECT t.id, t.name, t.manager_user_id,
+      `SELECT t.id, t.name, t.description, t.manager_user_id,
               COALESCE((
                 SELECT json_group_array(tm.user_id)
                 FROM team_managers tm
@@ -95,7 +95,7 @@ app.get('/api/teams/:id', (req, res) => {
   const db = getDb();
   const row = db
     .prepare(
-      `SELECT t.id, t.name, t.manager_user_id,
+      `SELECT t.id, t.name, t.description, t.manager_user_id,
               COALESCE((
                 SELECT json_group_array(tm.user_id)
                 FROM team_managers tm
@@ -118,20 +118,24 @@ app.get('/api/teams/:id', (req, res) => {
 
 app.post('/api/teams', (req, res) => {
   const db = getDb();
-  const { name, managerUserIds } = req.body as { name: string; managerUserIds?: number[] };
+  const { name, description, managerUserIds } = req.body as {
+    name: string;
+    description?: string;
+    managerUserIds?: number[];
+  };
   if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
   try {
     const managerIds = Array.from(new Set((managerUserIds ?? []).filter((id) => Number.isFinite(Number(id)))));
     const result = db
-      .prepare('INSERT INTO teams (name, manager_user_id) VALUES (?, ?)')
-      .run(name.trim(), managerIds[0] ?? null);
+      .prepare('INSERT INTO teams (name, description, manager_user_id) VALUES (?, ?, ?)')
+      .run(name.trim(), (description ?? '').trim(), managerIds[0] ?? null);
 
     const mapStmt = db.prepare('INSERT INTO team_managers (team_id, user_id) VALUES (?, ?)');
     managerIds.forEach((userId) => mapStmt.run(result.lastInsertRowid, userId));
 
     const created = db
       .prepare(
-        `SELECT t.id, t.name, t.manager_user_id,
+        `SELECT t.id, t.name, t.description, t.manager_user_id,
                 COALESCE((
                   SELECT json_group_array(tm.user_id)
                   FROM team_managers tm
@@ -151,7 +155,11 @@ app.post('/api/teams', (req, res) => {
 app.put('/api/teams/:id', (req, res) => {
   const db = getDb();
   const id = toId(req.params.id);
-  const { name, managerUserIds } = req.body as { name?: string; managerUserIds?: number[] };
+  const { name, description, managerUserIds } = req.body as {
+    name?: string;
+    description?: string;
+    managerUserIds?: number[];
+  };
   const existing = db.prepare('SELECT id FROM teams WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'Team not found' });
   try {
@@ -162,9 +170,10 @@ app.put('/api/teams/:id', (req, res) => {
     db.prepare(
       `UPDATE teams
        SET name = COALESCE(?, name),
+           description = COALESCE(?, description),
            manager_user_id = COALESCE(?, manager_user_id)
        WHERE id = ?`
-    ).run(name?.trim() ?? null, managerIds ? managerIds[0] ?? null : null, id);
+    ).run(name?.trim() ?? null, description == null ? null : description.trim(), managerIds ? managerIds[0] ?? null : null, id);
 
     if (managerIds) {
       db.prepare('DELETE FROM team_managers WHERE team_id = ?').run(id);
@@ -174,7 +183,7 @@ app.put('/api/teams/:id', (req, res) => {
 
     const updated = db
       .prepare(
-        `SELECT t.id, t.name, t.manager_user_id,
+        `SELECT t.id, t.name, t.description, t.manager_user_id,
                 COALESCE((
                   SELECT json_group_array(tm.user_id)
                   FROM team_managers tm

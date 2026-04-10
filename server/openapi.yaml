@@ -80,6 +80,8 @@ paths:
               properties:
                 name:
                   type: string
+                description:
+                  type: string
                 managerUserIds:
                   type: array
                   items:
@@ -110,6 +112,8 @@ paths:
               type: object
               properties:
                 name:
+                  type: string
+                description:
                   type: string
                 managerUserIds:
                   type: array
@@ -798,6 +802,8 @@ components:
         id:
           type: integer
         name:
+          type: string
+        description:
           type: string
         manager_user_ids:
           type: array
