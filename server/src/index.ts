@@ -389,25 +389,143 @@ app.get('/api/dashboard', (req, res) => {
     | undefined;
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const summary = db
-    .prepare(
-      `SELECT
-        (SELECT COUNT(*) FROM documents) AS total_documents,
-        (SELECT COUNT(*) FROM acknowledgments WHERE user_id = ?) AS completed,
-        (SELECT COUNT(*)
-          FROM documents d
-          INNER JOIN document_user_types dut ON dut.document_id = d.id
-         WHERE dut.user_type_id = ?) AS assigned,
-        (SELECT COUNT(*)
-           FROM documents d
-           INNER JOIN document_user_types dut ON dut.document_id = d.id
-          WHERE dut.user_type_id = ?
-            AND date(d.due_date) < date('now')
-            AND d.id NOT IN (
-              SELECT document_id FROM acknowledgments WHERE user_id = ?
-            )) AS overdue`
-    )
-    .get(user.id, user.user_type_id, user.user_type_id, user.id);
+  let summary: {
+    total_documents: number;
+    completed: number;
+    assigned: number;
+    overdue: number;
+  };
+
+  let overdueList: Array<{ id: number; title: string; due_date: string; team_name: string }> = [];
+
+  if (user.role === 'ADMINISTRATOR') {
+    summary = db
+      .prepare(
+        `SELECT
+          (SELECT COUNT(*) FROM documents) AS total_documents,
+          (SELECT COUNT(*)
+             FROM documents d
+            WHERE EXISTS (SELECT 1 FROM acknowledgments a WHERE a.document_id = d.id)
+          ) AS completed,
+          (SELECT COUNT(*) FROM documents) AS assigned,
+          (SELECT COUNT(*)
+             FROM documents d
+            WHERE date(d.due_date) < date('now')
+              AND NOT EXISTS (SELECT 1 FROM acknowledgments a WHERE a.document_id = d.id)
+          ) AS overdue`
+      )
+      .get() as {
+      total_documents: number;
+      completed: number;
+      assigned: number;
+      overdue: number;
+    };
+
+    overdueList = db
+      .prepare(
+        `SELECT d.id, d.title, d.due_date, tm.name AS team_name
+         FROM documents d
+         INNER JOIN teams tm ON tm.id = d.team_id
+         WHERE date(d.due_date) < date('now')
+           AND NOT EXISTS (
+             SELECT 1 FROM acknowledgments a WHERE a.document_id = d.id
+           )
+         ORDER BY d.due_date ASC`
+      )
+      .all() as Array<{ id: number; title: string; due_date: string; team_name: string }>;
+  } else if (user.role === 'TEAM_MANAGER') {
+    summary = db
+      .prepare(
+        `SELECT
+          (SELECT COUNT(*) FROM documents d
+            INNER JOIN teams tm ON tm.id = d.team_id
+           WHERE tm.manager_user_id = ?) AS total_documents,
+          (SELECT COUNT(*)
+             FROM documents d
+             INNER JOIN teams tm ON tm.id = d.team_id
+            WHERE tm.manager_user_id = ?
+              AND EXISTS (SELECT 1 FROM acknowledgments a WHERE a.document_id = d.id)
+          ) AS completed,
+          (SELECT COUNT(*) FROM documents d
+            INNER JOIN teams tm ON tm.id = d.team_id
+           WHERE tm.manager_user_id = ?) AS assigned,
+          (SELECT COUNT(*)
+             FROM documents d
+             INNER JOIN teams tm ON tm.id = d.team_id
+            WHERE tm.manager_user_id = ?
+              AND date(d.due_date) < date('now')
+              AND NOT EXISTS (SELECT 1 FROM acknowledgments a WHERE a.document_id = d.id)
+          ) AS overdue`
+      )
+      .get(user.id, user.id, user.id, user.id) as {
+      total_documents: number;
+      completed: number;
+      assigned: number;
+      overdue: number;
+    };
+
+    overdueList = db
+      .prepare(
+        `SELECT d.id, d.title, d.due_date, tm.name AS team_name
+         FROM documents d
+         INNER JOIN teams tm ON tm.id = d.team_id
+         WHERE tm.manager_user_id = ?
+           AND date(d.due_date) < date('now')
+           AND NOT EXISTS (
+             SELECT 1 FROM acknowledgments a WHERE a.document_id = d.id
+           )
+         ORDER BY d.due_date ASC`
+      )
+      .all(user.id) as Array<{ id: number; title: string; due_date: string; team_name: string }>;
+  } else {
+    summary = db
+      .prepare(
+        `SELECT
+          (SELECT COUNT(*)
+             FROM documents d
+             INNER JOIN document_user_types dut ON dut.document_id = d.id
+            WHERE dut.user_type_id = ?) AS total_documents,
+          (SELECT COUNT(*)
+             FROM acknowledgments a
+             INNER JOIN documents d ON d.id = a.document_id
+             INNER JOIN document_user_types dut ON dut.document_id = d.id
+            WHERE a.user_id = ? AND dut.user_type_id = ?
+          ) AS completed,
+          (SELECT COUNT(*)
+             FROM documents d
+             INNER JOIN document_user_types dut ON dut.document_id = d.id
+            WHERE dut.user_type_id = ?) AS assigned,
+          (SELECT COUNT(*)
+             FROM documents d
+             INNER JOIN document_user_types dut ON dut.document_id = d.id
+            WHERE dut.user_type_id = ?
+              AND date(d.due_date) < date('now')
+              AND d.id NOT IN (
+                SELECT document_id FROM acknowledgments WHERE user_id = ?
+              )) AS overdue`
+      )
+      .get(user.user_type_id, user.id, user.user_type_id, user.user_type_id, user.user_type_id, user.id) as {
+      total_documents: number;
+      completed: number;
+      assigned: number;
+      overdue: number;
+    };
+
+    overdueList = db
+      .prepare(
+        `SELECT d.id, d.title, d.due_date, tm.name AS team_name
+         FROM documents d
+         INNER JOIN teams tm ON tm.id = d.team_id
+         INNER JOIN document_user_types dut ON dut.document_id = d.id
+         WHERE dut.user_type_id = ?
+           AND date(d.due_date) < date('now')
+           AND d.id NOT IN (
+             SELECT document_id FROM acknowledgments WHERE user_id = ?
+           )
+         ORDER BY d.due_date ASC`
+      )
+      .all(user.user_type_id, user.id) as Array<{ id: number; title: string; due_date: string; team_name: string }>;
+  }
 
   const trend = db
     .prepare(
@@ -417,21 +535,6 @@ app.get('/api/dashboard', (req, res) => {
        ORDER BY t.day ASC, tm.name ASC`
     )
     .all();
-
-  const overdueList = db
-    .prepare(
-      `SELECT d.id, d.title, d.due_date, tm.name AS team_name
-       FROM documents d
-       INNER JOIN teams tm ON tm.id = d.team_id
-       INNER JOIN document_user_types dut ON dut.document_id = d.id
-       WHERE dut.user_type_id = ?
-         AND date(d.due_date) < date('now')
-         AND d.id NOT IN (
-           SELECT document_id FROM acknowledgments WHERE user_id = ?
-         )
-       ORDER BY d.due_date ASC`
-    )
-    .all(user.user_type_id, user.id);
 
   res.json({ summary, trend, overdueList });
 });
