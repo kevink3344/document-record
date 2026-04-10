@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
 import swaggerUi from 'swagger-ui-express';
 import { load } from 'js-yaml';
 import { getDb } from './db';
@@ -22,6 +23,31 @@ app.get('/api/openapi.yaml', (_req, res) => {
   res.sendFile(openApiPath);
 });
 
+const packageJsonPath = path.join(__dirname, '../package.json');
+const serverVersion = (() => {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as { version?: string };
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
+
+function resolveCommitHash(): string {
+  const envCommit = process.env.GIT_COMMIT || process.env.VERCEL_GIT_COMMIT_SHA;
+  if (envCommit?.trim()) return envCommit.trim().slice(0, 12);
+  try {
+    return execSync('git rev-parse --short HEAD', {
+      cwd: path.join(__dirname, '..'),
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+      .toString()
+      .trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
 function toId(value: string | number): number {
   const id = Number(value);
   return Number.isFinite(id) ? id : 0;
@@ -35,6 +61,15 @@ function sendSqlError(res: express.Response, error: unknown): void {
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
+});
+
+app.get('/api/version', (_req, res) => {
+  res.json({
+    service: 'document-record-server',
+    version: serverVersion,
+    commit: resolveCommitHash(),
+    node: process.version,
+  });
 });
 
 app.get('/api/lookups', (_req, res) => {

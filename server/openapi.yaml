@@ -42,6 +42,27 @@ paths:
                     type: string
                     example: ok
 
+  /api/version:
+    get:
+      tags: [Health]
+      summary: Runtime version info
+      responses:
+        '200':
+          description: API version details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                  version:
+                    type: string
+                  commit:
+                    type: string
+                  node:
+                    type: string
+
   /api/lookups:
     get:
       tags: [Lookups]
