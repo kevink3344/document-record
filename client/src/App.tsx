@@ -496,7 +496,7 @@ function App() {
   const nav = useMemo(() => {
     if (!activeUser) return [];
     if (activeUser.role === 'ADMINISTRATOR') {
-      return ['Dashboard', 'Teams', 'User Types', 'Schools', 'Users', 'Documents', 'Reports', 'Settings'];
+      return ['Dashboard', 'Teams', 'Users', 'User Types', 'Schools', 'Documents', 'Reports', 'Settings'];
     }
     if (activeUser.role === 'TEAM_MANAGER') return ['Dashboard', 'My Team Docs', 'Activity', 'Reports'];
     return ['Dashboard', 'My Documents', 'History'];
