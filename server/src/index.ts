@@ -10,6 +10,17 @@ app.use(express.json());
 
 getDb();
 
+function toId(value: string | number): number {
+  const id = Number(value);
+  return Number.isFinite(id) ? id : 0;
+}
+
+function sendSqlError(res: express.Response, error: unknown): void {
+  const message = error instanceof Error ? error.message : 'Database error';
+  const status = /FOREIGN KEY|UNIQUE|CHECK/.test(message) ? 409 : 400;
+  res.status(status).json({ error: message });
+}
+
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
@@ -31,6 +42,296 @@ app.get('/api/lookups', (_req, res) => {
     .all();
 
   res.json({ teams, userTypes, schools, users });
+});
+
+app.get('/api/teams', (_req, res) => {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT t.id, t.name, t.manager_user_id, u.full_name AS manager_name, t.created_at
+       FROM teams t
+       LEFT JOIN users u ON u.id = t.manager_user_id
+       ORDER BY t.name`
+    )
+    .all();
+  res.json(rows);
+});
+
+app.get('/api/teams/:id', (req, res) => {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT t.id, t.name, t.manager_user_id, u.full_name AS manager_name, t.created_at
+       FROM teams t
+       LEFT JOIN users u ON u.id = t.manager_user_id
+       WHERE t.id = ?`
+    )
+    .get(toId(req.params.id));
+  if (!row) return res.status(404).json({ error: 'Team not found' });
+  res.json(row);
+});
+
+app.post('/api/teams', (req, res) => {
+  const db = getDb();
+  const { name, managerUserId } = req.body as { name: string; managerUserId?: number | null };
+  if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
+  try {
+    const result = db
+      .prepare('INSERT INTO teams (name, manager_user_id) VALUES (?, ?)')
+      .run(name.trim(), managerUserId ?? null);
+    const created = db.prepare('SELECT * FROM teams WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json(created);
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.put('/api/teams/:id', (req, res) => {
+  const db = getDb();
+  const id = toId(req.params.id);
+  const { name, managerUserId } = req.body as { name?: string; managerUserId?: number | null };
+  const existing = db.prepare('SELECT id FROM teams WHERE id = ?').get(id);
+  if (!existing) return res.status(404).json({ error: 'Team not found' });
+  try {
+    db.prepare(
+      `UPDATE teams
+       SET name = COALESCE(?, name),
+           manager_user_id = COALESCE(?, manager_user_id)
+       WHERE id = ?`
+    ).run(name?.trim() ?? null, managerUserId ?? null, id);
+    const updated = db.prepare('SELECT * FROM teams WHERE id = ?').get(id);
+    res.json(updated);
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.delete('/api/teams/:id', (req, res) => {
+  const db = getDb();
+  try {
+    const result = db.prepare('DELETE FROM teams WHERE id = ?').run(toId(req.params.id));
+    if (!result.changes) return res.status(404).json({ error: 'Team not found' });
+    res.status(204).send();
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.get('/api/user-types', (_req, res) => {
+  const db = getDb();
+  res.json(db.prepare('SELECT * FROM user_types ORDER BY name').all());
+});
+
+app.get('/api/user-types/:id', (req, res) => {
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM user_types WHERE id = ?').get(toId(req.params.id));
+  if (!row) return res.status(404).json({ error: 'User type not found' });
+  res.json(row);
+});
+
+app.post('/api/user-types', (req, res) => {
+  const db = getDb();
+  const { name } = req.body as { name: string };
+  if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
+  try {
+    const result = db.prepare('INSERT INTO user_types (name) VALUES (?)').run(name.trim());
+    const created = db.prepare('SELECT * FROM user_types WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json(created);
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.put('/api/user-types/:id', (req, res) => {
+  const db = getDb();
+  const id = toId(req.params.id);
+  const { name } = req.body as { name?: string };
+  const existing = db.prepare('SELECT id FROM user_types WHERE id = ?').get(id);
+  if (!existing) return res.status(404).json({ error: 'User type not found' });
+  try {
+    db.prepare('UPDATE user_types SET name = COALESCE(?, name) WHERE id = ?').run(name?.trim() ?? null, id);
+    const updated = db.prepare('SELECT * FROM user_types WHERE id = ?').get(id);
+    res.json(updated);
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.delete('/api/user-types/:id', (req, res) => {
+  const db = getDb();
+  try {
+    const result = db.prepare('DELETE FROM user_types WHERE id = ?').run(toId(req.params.id));
+    if (!result.changes) return res.status(404).json({ error: 'User type not found' });
+    res.status(204).send();
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.get('/api/schools', (_req, res) => {
+  const db = getDb();
+  res.json(db.prepare('SELECT * FROM schools ORDER BY name').all());
+});
+
+app.get('/api/schools/:id', (req, res) => {
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM schools WHERE id = ?').get(toId(req.params.id));
+  if (!row) return res.status(404).json({ error: 'School not found' });
+  res.json(row);
+});
+
+app.post('/api/schools', (req, res) => {
+  const db = getDb();
+  const { name } = req.body as { name: string };
+  if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
+  try {
+    const result = db.prepare('INSERT INTO schools (name) VALUES (?)').run(name.trim());
+    const created = db.prepare('SELECT * FROM schools WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json(created);
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.put('/api/schools/:id', (req, res) => {
+  const db = getDb();
+  const id = toId(req.params.id);
+  const { name } = req.body as { name?: string };
+  const existing = db.prepare('SELECT id FROM schools WHERE id = ?').get(id);
+  if (!existing) return res.status(404).json({ error: 'School not found' });
+  try {
+    db.prepare('UPDATE schools SET name = COALESCE(?, name) WHERE id = ?').run(name?.trim() ?? null, id);
+    const updated = db.prepare('SELECT * FROM schools WHERE id = ?').get(id);
+    res.json(updated);
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.delete('/api/schools/:id', (req, res) => {
+  const db = getDb();
+  try {
+    const result = db.prepare('DELETE FROM schools WHERE id = ?').run(toId(req.params.id));
+    if (!result.changes) return res.status(404).json({ error: 'School not found' });
+    res.status(204).send();
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.get('/api/users', (_req, res) => {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT u.id, u.full_name, u.email, u.role, u.school_id, u.user_type_id, u.is_active, u.created_at,
+              s.name AS school_name, ut.name AS user_type_name
+       FROM users u
+       LEFT JOIN schools s ON s.id = u.school_id
+       LEFT JOIN user_types ut ON ut.id = u.user_type_id
+       ORDER BY u.full_name`
+    )
+    .all();
+  res.json(rows);
+});
+
+app.get('/api/users/:id', (req, res) => {
+  const db = getDb();
+  const row = db
+    .prepare(
+      `SELECT u.id, u.full_name, u.email, u.role, u.school_id, u.user_type_id, u.is_active, u.created_at,
+              s.name AS school_name, ut.name AS user_type_name
+       FROM users u
+       LEFT JOIN schools s ON s.id = u.school_id
+       LEFT JOIN user_types ut ON ut.id = u.user_type_id
+       WHERE u.id = ?`
+    )
+    .get(toId(req.params.id));
+  if (!row) return res.status(404).json({ error: 'User not found' });
+  res.json(row);
+});
+
+app.post('/api/users', (req, res) => {
+  const db = getDb();
+  const { fullName, email, role, schoolId, userTypeId, isActive } = req.body as {
+    fullName: string;
+    email: string;
+    role: 'ADMINISTRATOR' | 'TEAM_MANAGER' | 'USER';
+    schoolId?: number | null;
+    userTypeId?: number | null;
+    isActive?: number;
+  };
+  if (!fullName?.trim() || !email?.trim() || !role) {
+    return res.status(400).json({ error: 'fullName, email and role are required' });
+  }
+  try {
+    const result = db
+      .prepare(
+        `INSERT INTO users (full_name, email, role, school_id, user_type_id, is_active)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        fullName.trim(),
+        email.trim().toLowerCase(),
+        role,
+        schoolId ?? null,
+        userTypeId ?? null,
+        isActive ?? 1
+      );
+    const created = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json(created);
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.put('/api/users/:id', (req, res) => {
+  const db = getDb();
+  const id = toId(req.params.id);
+  const { fullName, email, role, schoolId, userTypeId, isActive } = req.body as {
+    fullName?: string;
+    email?: string;
+    role?: 'ADMINISTRATOR' | 'TEAM_MANAGER' | 'USER';
+    schoolId?: number | null;
+    userTypeId?: number | null;
+    isActive?: number;
+  };
+  const existing = db.prepare('SELECT id FROM users WHERE id = ?').get(id);
+  if (!existing) return res.status(404).json({ error: 'User not found' });
+  try {
+    db.prepare(
+      `UPDATE users
+       SET full_name = COALESCE(?, full_name),
+           email = COALESCE(?, email),
+           role = COALESCE(?, role),
+           school_id = COALESCE(?, school_id),
+           user_type_id = COALESCE(?, user_type_id),
+           is_active = COALESCE(?, is_active)
+       WHERE id = ?`
+    ).run(
+      fullName?.trim() ?? null,
+      email?.trim().toLowerCase() ?? null,
+      role ?? null,
+      schoolId ?? null,
+      userTypeId ?? null,
+      isActive ?? null,
+      id
+    );
+    const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+    res.json(updated);
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.delete('/api/users/:id', (req, res) => {
+  const db = getDb();
+  try {
+    const result = db.prepare('DELETE FROM users WHERE id = ?').run(toId(req.params.id));
+    if (!result.changes) return res.status(404).json({ error: 'User not found' });
+    res.status(204).send();
+  } catch (error) {
+    sendSqlError(res, error);
+  }
 });
 
 app.post('/api/register', (req, res) => {
@@ -286,6 +587,141 @@ app.post('/api/documents', (req, res) => {
   res.status(201).json({ id: result.lastInsertRowid });
 });
 
+app.put('/api/documents/:id', (req, res) => {
+  const db = getDb();
+  const id = toId(req.params.id);
+  const {
+    teamId,
+    title,
+    description,
+    content,
+    documentType,
+    schedule,
+    dueDate,
+    endDate,
+    fileUrl,
+    userTypeIds,
+    actorUserId,
+  } = req.body as {
+    teamId?: number;
+    title?: string;
+    description?: string;
+    content?: string;
+    documentType?: string;
+    schedule?: 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
+    dueDate?: string;
+    endDate?: string | null;
+    fileUrl?: string | null;
+    userTypeIds?: number[];
+    actorUserId?: number;
+  };
+
+  const existing = db.prepare('SELECT id FROM documents WHERE id = ?').get(id);
+  if (!existing) return res.status(404).json({ error: 'Document not found' });
+
+  try {
+    db.prepare(
+      `UPDATE documents
+       SET team_id = COALESCE(?, team_id),
+           title = COALESCE(?, title),
+           description = COALESCE(?, description),
+           content = COALESCE(?, content),
+           document_type = COALESCE(?, document_type),
+           schedule = COALESCE(?, schedule),
+           due_date = COALESCE(?, due_date),
+           end_date = COALESCE(?, end_date),
+           file_url = COALESCE(?, file_url),
+           updated_at = datetime('now')
+       WHERE id = ?`
+    ).run(
+      teamId ?? null,
+      title?.trim() ?? null,
+      description ?? null,
+      content ?? null,
+      documentType ?? null,
+      schedule ?? null,
+      dueDate ?? null,
+      endDate ?? null,
+      fileUrl ?? null,
+      id
+    );
+
+    if (Array.isArray(userTypeIds) && userTypeIds.length) {
+      db.prepare('DELETE FROM document_user_types WHERE document_id = ?').run(id);
+      const mapStmt = db.prepare(
+        'INSERT INTO document_user_types (document_id, user_type_id) VALUES (?, ?)'
+      );
+      userTypeIds.forEach((userTypeId) => mapStmt.run(id, userTypeId));
+    }
+
+    db.prepare(
+      'INSERT INTO activity_feed (entity_type, entity_id, message, actor_user_id) VALUES (?, ?, ?, ?)'
+    ).run('DOCUMENT', id, 'Document updated.', actorUserId ?? null);
+
+    const updated = db.prepare('SELECT * FROM documents WHERE id = ?').get(id);
+    res.json(updated);
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.delete('/api/documents/:id', (req, res) => {
+  const db = getDb();
+  const id = toId(req.params.id);
+  try {
+    const result = db.prepare('DELETE FROM documents WHERE id = ?').run(id);
+    if (!result.changes) return res.status(404).json({ error: 'Document not found' });
+    res.status(204).send();
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.get('/api/document-user-types', (req, res) => {
+  const db = getDb();
+  const documentId = req.query.documentId ? toId(String(req.query.documentId)) : null;
+  const rows = db
+    .prepare(
+      `SELECT dut.document_id, dut.user_type_id, ut.name AS user_type_name
+       FROM document_user_types dut
+       INNER JOIN user_types ut ON ut.id = dut.user_type_id
+       WHERE (? IS NULL OR dut.document_id = ?)
+       ORDER BY dut.document_id, ut.name`
+    )
+    .all(documentId, documentId);
+  res.json(rows);
+});
+
+app.post('/api/document-user-types', (req, res) => {
+  const db = getDb();
+  const { documentId, userTypeId } = req.body as { documentId: number; userTypeId: number };
+  if (!documentId || !userTypeId) {
+    return res.status(400).json({ error: 'documentId and userTypeId are required' });
+  }
+  try {
+    db.prepare('INSERT INTO document_user_types (document_id, user_type_id) VALUES (?, ?)').run(
+      documentId,
+      userTypeId
+    );
+    res.status(201).json({ documentId, userTypeId });
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.delete('/api/document-user-types', (req, res) => {
+  const db = getDb();
+  const { documentId, userTypeId } = req.body as { documentId: number; userTypeId: number };
+  if (!documentId || !userTypeId) {
+    return res.status(400).json({ error: 'documentId and userTypeId are required' });
+  }
+  const result = db
+    .prepare('DELETE FROM document_user_types WHERE document_id = ? AND user_type_id = ?')
+    .run(documentId, userTypeId);
+  if (!result.changes) return res.status(404).json({ error: 'Mapping not found' });
+  res.status(204).send();
+});
+
 app.post('/api/documents/:id/acknowledge', (req, res) => {
   const db = getDb();
   const documentId = Number(req.params.id);
@@ -311,6 +747,218 @@ app.post('/api/documents/:id/acknowledge', (req, res) => {
   ).run('DOCUMENT', documentId, 'Document acknowledged by staff member.', userId);
 
   res.status(201).json({ message: 'Acknowledged' });
+});
+
+app.get('/api/acknowledgments', (req, res) => {
+  const db = getDb();
+  const documentId = req.query.documentId ? toId(String(req.query.documentId)) : null;
+  const userId = req.query.userId ? toId(String(req.query.userId)) : null;
+  const rows = db
+    .prepare(
+      `SELECT a.*, u.full_name, d.title AS document_title
+       FROM acknowledgments a
+       INNER JOIN users u ON u.id = a.user_id
+       INNER JOIN documents d ON d.id = a.document_id
+       WHERE (? IS NULL OR a.document_id = ?)
+         AND (? IS NULL OR a.user_id = ?)
+       ORDER BY a.acknowledged_at DESC`
+    )
+    .all(documentId, documentId, userId, userId);
+  res.json(rows);
+});
+
+app.get('/api/acknowledgments/:id', (req, res) => {
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM acknowledgments WHERE id = ?').get(toId(req.params.id));
+  if (!row) return res.status(404).json({ error: 'Acknowledgment not found' });
+  res.json(row);
+});
+
+app.post('/api/acknowledgments', (req, res) => {
+  const db = getDb();
+  const { documentId, userId, acknowledged, comment } = req.body as {
+    documentId: number;
+    userId: number;
+    acknowledged?: number;
+    comment?: string;
+  };
+  if (!documentId || !userId) return res.status(400).json({ error: 'documentId and userId are required' });
+  try {
+    const result = db
+      .prepare(
+        `INSERT INTO acknowledgments (document_id, user_id, acknowledged, comment)
+         VALUES (?, ?, ?, ?)`
+      )
+      .run(documentId, userId, acknowledged ?? 1, comment ?? null);
+    const created = db.prepare('SELECT * FROM acknowledgments WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json(created);
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.put('/api/acknowledgments/:id', (req, res) => {
+  const db = getDb();
+  const id = toId(req.params.id);
+  const { acknowledged, comment } = req.body as { acknowledged?: number; comment?: string | null };
+  const existing = db.prepare('SELECT id FROM acknowledgments WHERE id = ?').get(id);
+  if (!existing) return res.status(404).json({ error: 'Acknowledgment not found' });
+  db.prepare(
+    `UPDATE acknowledgments
+     SET acknowledged = COALESCE(?, acknowledged),
+         comment = COALESCE(?, comment)
+     WHERE id = ?`
+  ).run(acknowledged ?? null, comment ?? null, id);
+  const updated = db.prepare('SELECT * FROM acknowledgments WHERE id = ?').get(id);
+  res.json(updated);
+});
+
+app.delete('/api/acknowledgments/:id', (req, res) => {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM acknowledgments WHERE id = ?').run(toId(req.params.id));
+  if (!result.changes) return res.status(404).json({ error: 'Acknowledgment not found' });
+  res.status(204).send();
+});
+
+app.get('/api/activity-feed', (req, res) => {
+  const db = getDb();
+  const entityType = req.query.entityType ? String(req.query.entityType) : null;
+  const entityId = req.query.entityId ? toId(String(req.query.entityId)) : null;
+  const rows = db
+    .prepare(
+      `SELECT af.*, u.full_name AS actor_name
+       FROM activity_feed af
+       LEFT JOIN users u ON u.id = af.actor_user_id
+       WHERE (? IS NULL OR af.entity_type = ?)
+         AND (? IS NULL OR af.entity_id = ?)
+       ORDER BY af.created_at DESC`
+    )
+    .all(entityType, entityType, entityId, entityId);
+  res.json(rows);
+});
+
+app.get('/api/activity-feed/:id', (req, res) => {
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM activity_feed WHERE id = ?').get(toId(req.params.id));
+  if (!row) return res.status(404).json({ error: 'Activity item not found' });
+  res.json(row);
+});
+
+app.post('/api/activity-feed', (req, res) => {
+  const db = getDb();
+  const { entityType, entityId, message, actorUserId } = req.body as {
+    entityType: string;
+    entityId: number;
+    message: string;
+    actorUserId?: number | null;
+  };
+  if (!entityType || !entityId || !message?.trim()) {
+    return res.status(400).json({ error: 'entityType, entityId and message are required' });
+  }
+  try {
+    const result = db
+      .prepare(
+        `INSERT INTO activity_feed (entity_type, entity_id, message, actor_user_id)
+         VALUES (?, ?, ?, ?)`
+      )
+      .run(entityType, entityId, message.trim(), actorUserId ?? null);
+    const created = db.prepare('SELECT * FROM activity_feed WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json(created);
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.put('/api/activity-feed/:id', (req, res) => {
+  const db = getDb();
+  const id = toId(req.params.id);
+  const { message } = req.body as { message?: string };
+  const existing = db.prepare('SELECT id FROM activity_feed WHERE id = ?').get(id);
+  if (!existing) return res.status(404).json({ error: 'Activity item not found' });
+  db.prepare('UPDATE activity_feed SET message = COALESCE(?, message) WHERE id = ?').run(
+    message?.trim() ?? null,
+    id
+  );
+  const updated = db.prepare('SELECT * FROM activity_feed WHERE id = ?').get(id);
+  res.json(updated);
+});
+
+app.delete('/api/activity-feed/:id', (req, res) => {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM activity_feed WHERE id = ?').run(toId(req.params.id));
+  if (!result.changes) return res.status(404).json({ error: 'Activity item not found' });
+  res.status(204).send();
+});
+
+app.get('/api/ticket-trend', (req, res) => {
+  const db = getDb();
+  const teamId = req.query.teamId ? toId(String(req.query.teamId)) : null;
+  const rows = db
+    .prepare(
+      `SELECT tt.*, t.name AS team_name
+       FROM ticket_trend tt
+       INNER JOIN teams t ON t.id = tt.team_id
+       WHERE (? IS NULL OR tt.team_id = ?)
+       ORDER BY tt.day ASC, t.name ASC`
+    )
+    .all(teamId, teamId);
+  res.json(rows);
+});
+
+app.get('/api/ticket-trend/:id', (req, res) => {
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM ticket_trend WHERE id = ?').get(toId(req.params.id));
+  if (!row) return res.status(404).json({ error: 'Trend item not found' });
+  res.json(row);
+});
+
+app.post('/api/ticket-trend', (req, res) => {
+  const db = getDb();
+  const { teamId, day, ticketCount } = req.body as { teamId: number; day: string; ticketCount: number };
+  if (!teamId || !day || ticketCount === undefined) {
+    return res.status(400).json({ error: 'teamId, day and ticketCount are required' });
+  }
+  try {
+    const result = db
+      .prepare('INSERT INTO ticket_trend (team_id, day, ticket_count) VALUES (?, ?, ?)')
+      .run(teamId, day, ticketCount);
+    const created = db.prepare('SELECT * FROM ticket_trend WHERE id = ?').get(result.lastInsertRowid);
+    res.status(201).json(created);
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.put('/api/ticket-trend/:id', (req, res) => {
+  const db = getDb();
+  const id = toId(req.params.id);
+  const { teamId, day, ticketCount } = req.body as {
+    teamId?: number;
+    day?: string;
+    ticketCount?: number;
+  };
+  const existing = db.prepare('SELECT id FROM ticket_trend WHERE id = ?').get(id);
+  if (!existing) return res.status(404).json({ error: 'Trend item not found' });
+  try {
+    db.prepare(
+      `UPDATE ticket_trend
+       SET team_id = COALESCE(?, team_id),
+           day = COALESCE(?, day),
+           ticket_count = COALESCE(?, ticket_count)
+       WHERE id = ?`
+    ).run(teamId ?? null, day ?? null, ticketCount ?? null, id);
+    const updated = db.prepare('SELECT * FROM ticket_trend WHERE id = ?').get(id);
+    res.json(updated);
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.delete('/api/ticket-trend/:id', (req, res) => {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM ticket_trend WHERE id = ?').run(toId(req.params.id));
+  if (!result.changes) return res.status(404).json({ error: 'Trend item not found' });
+  res.status(204).send();
 });
 
 app.get('/api/reports/compliance', (req, res) => {
