@@ -304,7 +304,7 @@ function App() {
     entity: EditEntity;
     id: number;
     title: string;
-    payload: Record<string, string>;
+    payload: Record<string, unknown>;
   } | null>(null);
 
   const [theme, setTheme] = useState({
@@ -469,15 +469,49 @@ function App() {
 
   const isAdminPage = activeUser?.role === 'ADMINISTRATOR' && activePage !== 'Dashboard';
   const isMyTeamDocsPage = activeUser?.role === 'TEAM_MANAGER' && activePage === 'My Team Docs';
+  const isUserMyDocumentsPage = activeUser?.role === 'USER' && activePage === 'My Documents';
+  const isUserHistoryPage = activeUser?.role === 'USER' && activePage === 'History';
+  const myCompletedDocuments = useMemo(
+    () => documents.filter((doc) => doc.status === 'COMPLETED'),
+    [documents]
+  );
+
+  const payloadString = (key: string, fallback = ''): string => {
+    if (!editPanel) return fallback;
+    const value = editPanel.payload[key];
+    return typeof value === 'string' ? value : fallback;
+  };
+
+  const payloadNumberArray = (key: string): number[] => {
+    if (!editPanel) return [];
+    const value = editPanel.payload[key];
+    return Array.isArray(value) ? (value as number[]) : [];
+  };
 
   const openEditPanel = (
     entity: EditEntity,
     id: number,
     title: string,
-    payload: Record<string, string>
+    payload: Record<string, unknown>
   ) => {
     setSelectedDocId(null);
     setEditPanel({ entity, id, title, payload });
+  };
+
+  const openDocumentEditPanel = async (doc: DocumentItem, title: string) => {
+    const mappings =
+      (await apiRequest<Array<{ document_id: number; user_type_id: number }>>(
+        `/document-user-types?documentId=${doc.id}`
+      )) ?? [];
+    const userTypeIds = mappings.map((m) => m.user_type_id);
+
+    openEditPanel('DOCUMENT', doc.id, title, {
+      title: doc.title,
+      description: doc.description ?? '',
+      dueDate: doc.due_date.slice(0, 10),
+      schedule: doc.schedule,
+      userTypeIds,
+    });
   };
 
   const saveEditPanel = async () => {
@@ -524,6 +558,9 @@ function App() {
       }
 
       if (entity === 'DOCUMENT') {
+        const userTypeIds = Array.isArray(payload.userTypeIds)
+          ? (payload.userTypeIds as number[])
+          : [];
         await apiRequest(`/documents/${id}`, {
           method: 'PUT',
           body: JSON.stringify({
@@ -531,6 +568,7 @@ function App() {
             description: payload.description,
             dueDate: payload.dueDate,
             schedule: payload.schedule,
+            userTypeIds,
             actorUserId: activeUser?.id,
           }),
         });
@@ -1128,14 +1166,11 @@ function App() {
                           </div>
                           <div className="space-x-2">
                             <button
-                              onClick={() =>
-                                openEditPanel('DOCUMENT', doc.id, `Edit Document: ${doc.title}`, {
-                                  title: doc.title,
-                                  description: doc.description ?? '',
-                                  dueDate: doc.due_date.slice(0, 10),
-                                  schedule: doc.schedule,
-                                })
-                              }
+                              onClick={() => {
+                                openDocumentEditPanel(doc, `Edit Document: ${doc.title}`).catch((error) =>
+                                  updateNotice(error instanceof Error ? error.message : 'Unable to open editor')
+                                );
+                              }}
                               className="border border-slate-300 px-2 py-1 text-xs"
                             >
                               Edit
@@ -1160,6 +1195,56 @@ function App() {
                   </section>
                 )}
               </>
+            ) : isUserMyDocumentsPage ? (
+              <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
+                <h3 className="mb-2 text-sm font-semibold uppercase">My Documents</h3>
+                <p className="mb-3 text-xs text-slate-500">Documents currently assigned to your user type.</p>
+                <div className="space-y-2">
+                  {filteredDocuments.length ? (
+                    filteredDocuments.map((doc) => (
+                      <button
+                        key={doc.id}
+                        onClick={() => setSelectedDocId(doc.id)}
+                        className="w-full rounded-[3px] border border-slate-200 bg-white p-3 text-left hover:border-slate-400 dark:border-slate-700 dark:bg-slate-900"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-semibold">{doc.title}</p>
+                            <p className="text-xs text-slate-500">{doc.team_name} • {doc.schedule} • {doc.user_types}</p>
+                          </div>
+                          <span className={`rounded-[3px] px-2 py-1 text-xs font-semibold ${badgeClass(doc.status)}`}>
+                            {doc.status}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-500">{formatDueText(doc.due_date)}</p>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="text-xs text-slate-500">No assigned documents match your search.</p>
+                  )}
+                </div>
+              </section>
+            ) : isUserHistoryPage ? (
+              <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
+                <h3 className="mb-2 text-sm font-semibold uppercase">History</h3>
+                <p className="mb-3 text-xs text-slate-500">Documents you have already acknowledged.</p>
+                <div className="space-y-2">
+                  {myCompletedDocuments.length ? (
+                    myCompletedDocuments.map((doc) => (
+                      <button
+                        key={doc.id}
+                        onClick={() => setSelectedDocId(doc.id)}
+                        className="w-full rounded-[3px] border border-emerald-200 bg-emerald-50 p-3 text-left hover:bg-emerald-100"
+                      >
+                        <p className="font-semibold text-emerald-900">{doc.title}</p>
+                        <p className="text-xs text-emerald-700">{doc.team_name} • Completed</p>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="text-xs text-slate-500">No completed acknowledgments yet.</p>
+                  )}
+                </div>
+              </section>
             ) : isMyTeamDocsPage ? (
               <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
                 <h3 className="mb-3 text-sm font-semibold uppercase">My Team Docs</h3>
@@ -1291,14 +1376,11 @@ function App() {
                         </div>
                         <div className="space-x-2">
                           <button
-                            onClick={() =>
-                              openEditPanel('DOCUMENT', doc.id, `Edit Team Document: ${doc.title}`, {
-                                title: doc.title,
-                                description: doc.description ?? '',
-                                dueDate: doc.due_date.slice(0, 10),
-                                schedule: doc.schedule,
-                              })
-                            }
+                            onClick={() => {
+                              openDocumentEditPanel(doc, `Edit Team Document: ${doc.title}`).catch((error) =>
+                                updateNotice(error instanceof Error ? error.message : 'Unable to open editor')
+                              );
+                            }}
                             className="border border-slate-300 px-2 py-1 text-xs"
                           >
                             Edit
@@ -1453,7 +1535,7 @@ function App() {
                     <label className="block">
                       <span className="mb-1 block text-xs uppercase text-slate-500">Team Name</span>
                       <input
-                        value={editPanel.payload.name ?? ''}
+                        value={payloadString('name')}
                         onChange={(e) =>
                           setEditPanel((prev) =>
                             prev ? { ...prev, payload: { ...prev.payload, name: e.target.value } } : prev
@@ -1465,7 +1547,7 @@ function App() {
                     <label className="block">
                       <span className="mb-1 block text-xs uppercase text-slate-500">Manager</span>
                       <select
-                        value={editPanel.payload.managerUserId ?? ''}
+                        value={payloadString('managerUserId')}
                         onChange={(e) =>
                           setEditPanel((prev) =>
                             prev ? { ...prev, payload: { ...prev.payload, managerUserId: e.target.value } } : prev
@@ -1488,7 +1570,7 @@ function App() {
                   <label className="block">
                     <span className="mb-1 block text-xs uppercase text-slate-500">User Type Name</span>
                     <input
-                      value={editPanel.payload.name ?? ''}
+                      value={payloadString('name')}
                       onChange={(e) =>
                         setEditPanel((prev) =>
                           prev ? { ...prev, payload: { ...prev.payload, name: e.target.value } } : prev
@@ -1503,7 +1585,7 @@ function App() {
                   <label className="block">
                     <span className="mb-1 block text-xs uppercase text-slate-500">School Name</span>
                     <input
-                      value={editPanel.payload.name ?? ''}
+                      value={payloadString('name')}
                       onChange={(e) =>
                         setEditPanel((prev) =>
                           prev ? { ...prev, payload: { ...prev.payload, name: e.target.value } } : prev
@@ -1519,7 +1601,7 @@ function App() {
                     <label className="block">
                       <span className="mb-1 block text-xs uppercase text-slate-500">Full Name</span>
                       <input
-                        value={editPanel.payload.fullName ?? ''}
+                        value={payloadString('fullName')}
                         onChange={(e) =>
                           setEditPanel((prev) =>
                             prev ? { ...prev, payload: { ...prev.payload, fullName: e.target.value } } : prev
@@ -1531,7 +1613,7 @@ function App() {
                     <label className="block">
                       <span className="mb-1 block text-xs uppercase text-slate-500">Email</span>
                       <input
-                        value={editPanel.payload.email ?? ''}
+                        value={payloadString('email')}
                         onChange={(e) =>
                           setEditPanel((prev) =>
                             prev ? { ...prev, payload: { ...prev.payload, email: e.target.value } } : prev
@@ -1543,7 +1625,7 @@ function App() {
                     <label className="block">
                       <span className="mb-1 block text-xs uppercase text-slate-500">Role</span>
                       <select
-                        value={editPanel.payload.role ?? 'USER'}
+                        value={payloadString('role', 'USER')}
                         onChange={(e) =>
                           setEditPanel((prev) =>
                             prev ? { ...prev, payload: { ...prev.payload, role: e.target.value } } : prev
@@ -1560,7 +1642,7 @@ function App() {
                       <label className="block">
                         <span className="mb-1 block text-xs uppercase text-slate-500">School</span>
                         <select
-                          value={editPanel.payload.schoolId ?? ''}
+                          value={payloadString('schoolId')}
                           onChange={(e) =>
                             setEditPanel((prev) =>
                               prev ? { ...prev, payload: { ...prev.payload, schoolId: e.target.value } } : prev
@@ -1579,7 +1661,7 @@ function App() {
                       <label className="block">
                         <span className="mb-1 block text-xs uppercase text-slate-500">User Type</span>
                         <select
-                          value={editPanel.payload.userTypeId ?? ''}
+                          value={payloadString('userTypeId')}
                           onChange={(e) =>
                             setEditPanel((prev) =>
                               prev ? { ...prev, payload: { ...prev.payload, userTypeId: e.target.value } } : prev
@@ -1599,7 +1681,7 @@ function App() {
                     <label className="block">
                       <span className="mb-1 block text-xs uppercase text-slate-500">Active</span>
                       <select
-                        value={editPanel.payload.isActive ?? '1'}
+                        value={payloadString('isActive', '1')}
                         onChange={(e) =>
                           setEditPanel((prev) =>
                             prev ? { ...prev, payload: { ...prev.payload, isActive: e.target.value } } : prev
@@ -1619,7 +1701,7 @@ function App() {
                     <label className="block">
                       <span className="mb-1 block text-xs uppercase text-slate-500">Title</span>
                       <input
-                        value={editPanel.payload.title ?? ''}
+                        value={payloadString('title')}
                         onChange={(e) =>
                           setEditPanel((prev) =>
                             prev ? { ...prev, payload: { ...prev.payload, title: e.target.value } } : prev
@@ -1631,7 +1713,7 @@ function App() {
                     <label className="block">
                       <span className="mb-1 block text-xs uppercase text-slate-500">Description</span>
                       <textarea
-                        value={editPanel.payload.description ?? ''}
+                        value={payloadString('description')}
                         onChange={(e) =>
                           setEditPanel((prev) =>
                             prev ? { ...prev, payload: { ...prev.payload, description: e.target.value } } : prev
@@ -1646,7 +1728,7 @@ function App() {
                         <span className="mb-1 block text-xs uppercase text-slate-500">Due Date</span>
                         <input
                           type="date"
-                          value={editPanel.payload.dueDate ?? ''}
+                          value={payloadString('dueDate')}
                           onChange={(e) =>
                             setEditPanel((prev) =>
                               prev ? { ...prev, payload: { ...prev.payload, dueDate: e.target.value } } : prev
@@ -1658,7 +1740,7 @@ function App() {
                       <label className="block">
                         <span className="mb-1 block text-xs uppercase text-slate-500">Schedule</span>
                         <select
-                          value={editPanel.payload.schedule ?? 'YEARLY'}
+                          value={payloadString('schedule', 'YEARLY')}
                           onChange={(e) =>
                             setEditPanel((prev) =>
                               prev ? { ...prev, payload: { ...prev.payload, schedule: e.target.value } } : prev
@@ -1672,6 +1754,27 @@ function App() {
                         </select>
                       </label>
                     </div>
+                    <label className="block">
+                      <span className="mb-1 block text-xs uppercase text-slate-500">User Types</span>
+                      <select
+                        multiple
+                        value={payloadNumberArray('userTypeIds').map(String)}
+                        onChange={(e) => {
+                          const values = Array.from(e.target.selectedOptions).map((opt) => Number(opt.value));
+                          setEditPanel((prev) =>
+                            prev ? { ...prev, payload: { ...prev.payload, userTypeIds: values } } : prev
+                          );
+                        }}
+                        className="h-28 w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                      >
+                        {lookups.userTypes.map((ut) => (
+                          <option key={ut.id} value={ut.id}>
+                            {ut.name}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-slate-500">Hold Ctrl/Cmd to select multiple user types.</p>
+                    </label>
                   </>
                 )}
 
