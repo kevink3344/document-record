@@ -295,6 +295,14 @@ function App() {
     fileUrl: '',
     userTypeIds: [] as number[],
   });
+  const [newForms, setNewForms] = useState({
+    teams: false,
+    userTypes: false,
+    schools: false,
+    users: false,
+    documents: false,
+    myTeamDocs: false,
+  });
   const [teamDocForm, setTeamDocForm] = useState({
     title: '',
     description: '',
@@ -732,7 +740,16 @@ function App() {
               <>
                 {activePage === 'Teams' && (
                   <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
-                    <h3 className="mb-3 text-sm font-semibold uppercase">Teams</h3>
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="text-sm font-semibold uppercase">Teams</h3>
+                      <button
+                        onClick={() => setNewForms((prev) => ({ ...prev, teams: !prev.teams }))}
+                        className="border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800"
+                      >
+                        +New
+                      </button>
+                    </div>
+                    {newForms.teams && (
                     <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-3">
                       <input
                         placeholder="Team name"
@@ -763,6 +780,7 @@ function App() {
                               }),
                             });
                             setTeamForm({ name: '', managerUserId: '' });
+                            setNewForms((prev) => ({ ...prev, teams: false }));
                           }, 'Team created')
                         }
                         className="border border-blue-400 bg-blue-600 px-2 py-2 text-xs font-semibold text-white"
@@ -770,6 +788,7 @@ function App() {
                         Create Team
                       </button>
                     </div>
+                    )}
                     <div className="space-y-2">
                       {teams.map((team) => (
                         <div key={team.id} className="flex items-center justify-between border border-slate-200 p-2 text-sm dark:border-slate-700">
@@ -811,7 +830,16 @@ function App() {
 
                 {activePage === 'User Types' && (
                   <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
-                    <h3 className="mb-3 text-sm font-semibold uppercase">User Types</h3>
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="text-sm font-semibold uppercase">User Types</h3>
+                      <button
+                        onClick={() => setNewForms((prev) => ({ ...prev, userTypes: !prev.userTypes }))}
+                        className="border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800"
+                      >
+                        +New
+                      </button>
+                    </div>
+                    {newForms.userTypes && (
                     <div className="mb-4 flex gap-2">
                       <input
                         placeholder="User type name"
@@ -827,6 +855,7 @@ function App() {
                               body: JSON.stringify({ name: userTypeForm.name }),
                             });
                             setUserTypeForm({ name: '' });
+                            setNewForms((prev) => ({ ...prev, userTypes: false }));
                           }, 'User type created')
                         }
                         className="border border-blue-400 bg-blue-600 px-2 py-2 text-xs font-semibold text-white"
@@ -834,6 +863,7 @@ function App() {
                         Create
                       </button>
                     </div>
+                    )}
                     <div className="space-y-2">
                       {userTypes.map((item) => (
                         <div key={item.id} className="flex items-center justify-between border border-slate-200 p-2 text-sm dark:border-slate-700">
@@ -871,7 +901,16 @@ function App() {
 
                 {activePage === 'Schools' && (
                   <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
-                    <h3 className="mb-3 text-sm font-semibold uppercase">Schools</h3>
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="text-sm font-semibold uppercase">Schools</h3>
+                      <button
+                        onClick={() => setNewForms((prev) => ({ ...prev, schools: !prev.schools }))}
+                        className="border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800"
+                      >
+                        +New
+                      </button>
+                    </div>
+                    {newForms.schools && (
                     <div className="mb-4 flex gap-2">
                       <input
                         placeholder="School name"
@@ -887,6 +926,7 @@ function App() {
                               body: JSON.stringify({ name: schoolForm.name }),
                             });
                             setSchoolForm({ name: '' });
+                            setNewForms((prev) => ({ ...prev, schools: false }));
                           }, 'School created')
                         }
                         className="border border-blue-400 bg-blue-600 px-2 py-2 text-xs font-semibold text-white"
@@ -894,6 +934,7 @@ function App() {
                         Create
                       </button>
                     </div>
+                    )}
                     <div className="space-y-2">
                       {schools.map((item) => (
                         <div key={item.id} className="flex items-center justify-between border border-slate-200 p-2 text-sm dark:border-slate-700">
@@ -931,7 +972,16 @@ function App() {
 
                 {activePage === 'Users' && (
                   <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
-                    <h3 className="mb-3 text-sm font-semibold uppercase">Users</h3>
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="text-sm font-semibold uppercase">Users</h3>
+                      <button
+                        onClick={() => setNewForms((prev) => ({ ...prev, users: !prev.users }))}
+                        className="border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800"
+                      >
+                        +New
+                      </button>
+                    </div>
+                    {newForms.users && (
                     <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-3">
                       <input
                         placeholder="Full name"
@@ -1000,6 +1050,7 @@ function App() {
                               userTypeId: '',
                               isActive: true,
                             });
+                            setNewForms((prev) => ({ ...prev, users: false }));
                           }, 'User created')
                         }
                         className="border border-blue-400 bg-blue-600 px-2 py-2 text-xs font-semibold text-white"
@@ -1007,6 +1058,7 @@ function App() {
                         Create User
                       </button>
                     </div>
+                    )}
                     <div className="space-y-2">
                       {users.map((u) => (
                         <div key={u.id} className="flex items-center justify-between border border-slate-200 p-2 text-sm dark:border-slate-700">
@@ -1054,7 +1106,16 @@ function App() {
 
                 {activePage === 'Documents' && (
                   <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
-                    <h3 className="mb-3 text-sm font-semibold uppercase">Documents</h3>
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="text-sm font-semibold uppercase">Documents</h3>
+                      <button
+                        onClick={() => setNewForms((prev) => ({ ...prev, documents: !prev.documents }))}
+                        className="border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800"
+                      >
+                        +New
+                      </button>
+                    </div>
+                    {newForms.documents && (
                     <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-3">
                       <input
                         placeholder="Title"
@@ -1162,6 +1223,7 @@ function App() {
                               fileUrl: '',
                               userTypeIds: [],
                             });
+                            setNewForms((prev) => ({ ...prev, documents: false }));
                           }, 'Document created')
                         }
                         className="border border-blue-400 bg-blue-600 px-2 py-2 text-xs font-semibold text-white"
@@ -1169,6 +1231,7 @@ function App() {
                         Create Document
                       </button>
                     </div>
+                    )}
 
                     <div className="space-y-2">
                       {documents.map((doc) => (
@@ -1265,9 +1328,18 @@ function App() {
               </section>
             ) : isMyTeamDocsPage ? (
               <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
-                <h3 className="mb-3 text-sm font-semibold uppercase">My Team Docs</h3>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold uppercase">My Team Docs</h3>
+                  <button
+                    onClick={() => setNewForms((prev) => ({ ...prev, myTeamDocs: !prev.myTeamDocs }))}
+                    className="border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800"
+                  >
+                    +New
+                  </button>
+                </div>
                 <p className="mb-3 text-xs text-slate-500">Manage documents assigned to your team(s). You can add new documents or edit existing ones.</p>
 
+                {newForms.myTeamDocs && (
                 <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-3">
                   <select
                     value={teamDocForm.teamId}
@@ -1376,6 +1448,7 @@ function App() {
                           fileUrl: '',
                           userTypeIds: [],
                         }));
+                        setNewForms((prev) => ({ ...prev, myTeamDocs: false }));
                       }, 'Team document created')
                     }
                     className="border border-blue-400 bg-blue-600 px-2 py-2 text-xs font-semibold text-white"
@@ -1383,6 +1456,7 @@ function App() {
                     Add Team Document
                   </button>
                 </div>
+                )}
 
                 <div className="space-y-2">
                   {teamDocs.length ? (
