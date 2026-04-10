@@ -104,6 +104,19 @@ function badgeClass(status: string): string {
   return 'bg-amber-100 text-amber-900 border border-amber-300';
 }
 
+function teamBadgeClass(teamName: string): string {
+  const pastelClasses = [
+    'bg-sky-100 text-sky-900 border border-sky-200',
+    'bg-emerald-100 text-emerald-900 border border-emerald-200',
+    'bg-amber-100 text-amber-900 border border-amber-200',
+    'bg-rose-100 text-rose-900 border border-rose-200',
+    'bg-violet-100 text-violet-900 border border-violet-200',
+    'bg-teal-100 text-teal-900 border border-teal-200',
+  ];
+  const hash = [...teamName].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  return pastelClasses[hash % pastelClasses.length];
+}
+
 function formatDueText(dateStr: string): string {
   const due = new Date(dateStr).getTime();
   const delta = Math.ceil((due - Date.now()) / 86400000);
@@ -1162,7 +1175,12 @@ function App() {
                         <div key={doc.id} className="flex items-center justify-between border border-slate-200 p-2 text-sm dark:border-slate-700">
                           <div>
                             <p className="font-semibold">{doc.title}</p>
-                            <p className="text-xs text-slate-500">{doc.team_name} • {doc.schedule} • {doc.user_types}</p>
+                            <p className="text-xs text-slate-500">
+                              <span className={`mr-1 inline-flex rounded-[3px] px-1.5 py-0.5 font-semibold ${teamBadgeClass(doc.team_name)}`}>
+                                {doc.team_name}
+                              </span>
+                              • {doc.schedule} • {doc.user_types}
+                            </p>
                           </div>
                           <div className="space-x-2">
                             <button
@@ -1372,7 +1390,12 @@ function App() {
                       <div key={doc.id} className="flex items-center justify-between border border-slate-200 p-2 text-sm dark:border-slate-700">
                         <div>
                           <p className="font-semibold">{doc.title}</p>
-                          <p className="text-xs text-slate-500">{doc.team_name} • {doc.schedule} • {formatDueText(doc.due_date)}</p>
+                          <p className="text-xs text-slate-500">
+                            <span className={`mr-1 inline-flex rounded-[3px] px-1.5 py-0.5 font-semibold ${teamBadgeClass(doc.team_name)}`}>
+                              {doc.team_name}
+                            </span>
+                            • {doc.schedule} • {formatDueText(doc.due_date)}
+                          </p>
                         </div>
                         <div className="space-x-2">
                           <button
