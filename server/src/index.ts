@@ -39,7 +39,18 @@ app.get('/api/health', (_req, res) => {
 
 app.get('/api/lookups', (_req, res) => {
   const db = getDb();
-  const teams = db.prepare('SELECT id, name, manager_user_id FROM teams ORDER BY name').all();
+  const teams = db
+    .prepare(
+      `SELECT t.id, t.name, t.manager_user_id,
+              COALESCE((
+                SELECT json_group_array(tm.user_id)
+                FROM team_managers tm
+                WHERE tm.team_id = t.id
+              ), '[]') AS manager_user_ids
+       FROM teams t
+       ORDER BY t.name`
+    )
+    .all();
   const userTypes = db.prepare('SELECT id, name FROM user_types ORDER BY name').all();
   const schools = db.prepare('SELECT id, name FROM schools ORDER BY name').all();
   const users = db
@@ -60,9 +71,20 @@ app.get('/api/teams', (_req, res) => {
   const db = getDb();
   const rows = db
     .prepare(
-      `SELECT t.id, t.name, t.manager_user_id, u.full_name AS manager_name, t.created_at
+      `SELECT t.id, t.name, t.manager_user_id,
+              COALESCE((
+                SELECT json_group_array(tm.user_id)
+                FROM team_managers tm
+                WHERE tm.team_id = t.id
+              ), '[]') AS manager_user_ids,
+              COALESCE((
+                SELECT GROUP_CONCAT(u.full_name, ', ')
+                FROM team_managers tm
+                INNER JOIN users u ON u.id = tm.user_id
+                WHERE tm.team_id = t.id
+              ), '') AS manager_names,
+              t.created_at
        FROM teams t
-       LEFT JOIN users u ON u.id = t.manager_user_id
        ORDER BY t.name`
     )
     .all();
@@ -73,9 +95,20 @@ app.get('/api/teams/:id', (req, res) => {
   const db = getDb();
   const row = db
     .prepare(
-      `SELECT t.id, t.name, t.manager_user_id, u.full_name AS manager_name, t.created_at
+      `SELECT t.id, t.name, t.manager_user_id,
+              COALESCE((
+                SELECT json_group_array(tm.user_id)
+                FROM team_managers tm
+                WHERE tm.team_id = t.id
+              ), '[]') AS manager_user_ids,
+              COALESCE((
+                SELECT GROUP_CONCAT(u.full_name, ', ')
+                FROM team_managers tm
+                INNER JOIN users u ON u.id = tm.user_id
+                WHERE tm.team_id = t.id
+              ), '') AS manager_names,
+              t.created_at
        FROM teams t
-       LEFT JOIN users u ON u.id = t.manager_user_id
        WHERE t.id = ?`
     )
     .get(toId(req.params.id));
@@ -85,13 +118,30 @@ app.get('/api/teams/:id', (req, res) => {
 
 app.post('/api/teams', (req, res) => {
   const db = getDb();
-  const { name, managerUserId } = req.body as { name: string; managerUserId?: number | null };
+  const { name, managerUserIds } = req.body as { name: string; managerUserIds?: number[] };
   if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
   try {
+    const managerIds = Array.from(new Set((managerUserIds ?? []).filter((id) => Number.isFinite(Number(id)))));
     const result = db
       .prepare('INSERT INTO teams (name, manager_user_id) VALUES (?, ?)')
-      .run(name.trim(), managerUserId ?? null);
-    const created = db.prepare('SELECT * FROM teams WHERE id = ?').get(result.lastInsertRowid);
+      .run(name.trim(), managerIds[0] ?? null);
+
+    const mapStmt = db.prepare('INSERT INTO team_managers (team_id, user_id) VALUES (?, ?)');
+    managerIds.forEach((userId) => mapStmt.run(result.lastInsertRowid, userId));
+
+    const created = db
+      .prepare(
+        `SELECT t.id, t.name, t.manager_user_id,
+                COALESCE((
+                  SELECT json_group_array(tm.user_id)
+                  FROM team_managers tm
+                  WHERE tm.team_id = t.id
+                ), '[]') AS manager_user_ids,
+                t.created_at
+         FROM teams t
+         WHERE t.id = ?`
+      )
+      .get(result.lastInsertRowid);
     res.status(201).json(created);
   } catch (error) {
     sendSqlError(res, error);
@@ -101,17 +151,40 @@ app.post('/api/teams', (req, res) => {
 app.put('/api/teams/:id', (req, res) => {
   const db = getDb();
   const id = toId(req.params.id);
-  const { name, managerUserId } = req.body as { name?: string; managerUserId?: number | null };
+  const { name, managerUserIds } = req.body as { name?: string; managerUserIds?: number[] };
   const existing = db.prepare('SELECT id FROM teams WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'Team not found' });
   try {
+    const managerIds = Array.isArray(managerUserIds)
+      ? Array.from(new Set(managerUserIds.filter((value) => Number.isFinite(Number(value)))))
+      : null;
+
     db.prepare(
       `UPDATE teams
        SET name = COALESCE(?, name),
            manager_user_id = COALESCE(?, manager_user_id)
        WHERE id = ?`
-    ).run(name?.trim() ?? null, managerUserId ?? null, id);
-    const updated = db.prepare('SELECT * FROM teams WHERE id = ?').get(id);
+    ).run(name?.trim() ?? null, managerIds ? managerIds[0] ?? null : null, id);
+
+    if (managerIds) {
+      db.prepare('DELETE FROM team_managers WHERE team_id = ?').run(id);
+      const mapStmt = db.prepare('INSERT INTO team_managers (team_id, user_id) VALUES (?, ?)');
+      managerIds.forEach((userId) => mapStmt.run(id, userId));
+    }
+
+    const updated = db
+      .prepare(
+        `SELECT t.id, t.name, t.manager_user_id,
+                COALESCE((
+                  SELECT json_group_array(tm.user_id)
+                  FROM team_managers tm
+                  WHERE tm.team_id = t.id
+                ), '[]') AS manager_user_ids,
+                t.created_at
+         FROM teams t
+         WHERE t.id = ?`
+      )
+      .get(id);
     res.json(updated);
   } catch (error) {
     sendSqlError(res, error);
@@ -438,21 +511,21 @@ app.get('/api/dashboard', (req, res) => {
       .prepare(
         `SELECT
           (SELECT COUNT(*) FROM documents d
-            INNER JOIN teams tm ON tm.id = d.team_id
-           WHERE tm.manager_user_id = ?) AS total_documents,
+            INNER JOIN team_managers tmg ON tmg.team_id = d.team_id
+           WHERE tmg.user_id = ?) AS total_documents,
           (SELECT COUNT(*)
              FROM documents d
-             INNER JOIN teams tm ON tm.id = d.team_id
-            WHERE tm.manager_user_id = ?
+             INNER JOIN team_managers tmg ON tmg.team_id = d.team_id
+            WHERE tmg.user_id = ?
               AND EXISTS (SELECT 1 FROM acknowledgments a WHERE a.document_id = d.id)
           ) AS completed,
           (SELECT COUNT(*) FROM documents d
-            INNER JOIN teams tm ON tm.id = d.team_id
-           WHERE tm.manager_user_id = ?) AS assigned,
+            INNER JOIN team_managers tmg ON tmg.team_id = d.team_id
+           WHERE tmg.user_id = ?) AS assigned,
           (SELECT COUNT(*)
              FROM documents d
-             INNER JOIN teams tm ON tm.id = d.team_id
-            WHERE tm.manager_user_id = ?
+             INNER JOIN team_managers tmg ON tmg.team_id = d.team_id
+            WHERE tmg.user_id = ?
               AND date(d.due_date) < date('now')
               AND NOT EXISTS (SELECT 1 FROM acknowledgments a WHERE a.document_id = d.id)
           ) AS overdue`
@@ -469,7 +542,8 @@ app.get('/api/dashboard', (req, res) => {
         `SELECT d.id, d.title, d.due_date, tm.name AS team_name
          FROM documents d
          INNER JOIN teams tm ON tm.id = d.team_id
-         WHERE tm.manager_user_id = ?
+         INNER JOIN team_managers tmg ON tmg.team_id = d.team_id
+         WHERE tmg.user_id = ?
            AND date(d.due_date) < date('now')
            AND NOT EXISTS (
              SELECT 1 FROM acknowledgments a WHERE a.document_id = d.id
@@ -616,9 +690,10 @@ app.get('/api/my-team-docs', (req, res) => {
               ) THEN 1 ELSE 0 END AS is_acknowledged
        FROM documents d
        INNER JOIN teams tm ON tm.id = d.team_id
+       INNER JOIN team_managers tmg ON tmg.team_id = d.team_id
        LEFT JOIN document_user_types dut ON dut.document_id = d.id
        LEFT JOIN user_types ut ON ut.id = dut.user_type_id
-       WHERE tm.manager_user_id = ?
+       WHERE tmg.user_id = ?
        GROUP BY d.id
        ORDER BY d.due_date ASC`
     )

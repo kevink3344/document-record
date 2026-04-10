@@ -12,6 +12,7 @@ export function getDb(): Database.Database {
     db.pragma('foreign_keys = ON');
     initSchema();
     seedIfEmpty();
+    syncTeamManagersFromLegacy();
   }
   return db;
 }
@@ -24,6 +25,14 @@ function initSchema(): void {
       manager_user_id INTEGER,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (manager_user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS team_managers (
+      team_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      PRIMARY KEY (team_id, user_id),
+      FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS user_types (
@@ -106,6 +115,15 @@ function initSchema(): void {
       UNIQUE(team_id, day),
       FOREIGN KEY (team_id) REFERENCES teams(id)
     );
+  `);
+}
+
+function syncTeamManagersFromLegacy(): void {
+  db.exec(`
+    INSERT OR IGNORE INTO team_managers (team_id, user_id)
+    SELECT id, manager_user_id
+    FROM teams
+    WHERE manager_user_id IS NOT NULL;
   `);
 }
 

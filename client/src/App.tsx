@@ -36,7 +36,13 @@ type LookupUser = {
 
 type LookupItem = { id: number; name: string };
 
-type Team = { id: number; name: string; manager_user_id: number | null; manager_name?: string };
+type Team = {
+  id: number;
+  name: string;
+  manager_user_id: number | null;
+  manager_user_ids: number[];
+  manager_names?: string;
+};
 type UserType = { id: number; name: string };
 type School = { id: number; name: string };
 
@@ -144,6 +150,31 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T | null
 
   if (response.status === 204) return null;
   return (await response.json()) as T;
+}
+
+function normalizeTeam(raw: Record<string, unknown>): Team {
+  let managerUserIds: number[] = [];
+  const rawIds = raw.manager_user_ids;
+  if (Array.isArray(rawIds)) {
+    managerUserIds = rawIds.map((v) => Number(v)).filter((v) => Number.isFinite(v));
+  } else if (typeof rawIds === 'string' && rawIds.trim()) {
+    try {
+      const parsed = JSON.parse(rawIds);
+      if (Array.isArray(parsed)) {
+        managerUserIds = parsed.map((v) => Number(v)).filter((v) => Number.isFinite(v));
+      }
+    } catch {
+      managerUserIds = [];
+    }
+  }
+
+  return {
+    id: Number(raw.id),
+    name: String(raw.name ?? ''),
+    manager_user_id: raw.manager_user_id == null ? null : Number(raw.manager_user_id),
+    manager_user_ids: managerUserIds,
+    manager_names: String(raw.manager_names ?? ''),
+  };
 }
 
 function TrendChart({ trend }: { trend: DashboardResponse['trend'] }) {
@@ -272,7 +303,7 @@ function App() {
   const [schools, setSchools] = useState<School[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
 
-  const [teamForm, setTeamForm] = useState({ name: '', managerUserId: '' });
+  const [teamForm, setTeamForm] = useState({ name: '', managerUserIds: [] as number[] });
   const [userTypeForm, setUserTypeForm] = useState({ name: '' });
   const [schoolForm, setSchoolForm] = useState({ name: '' });
   const [userForm, setUserForm] = useState({
@@ -369,7 +400,7 @@ function App() {
       apiRequest<School[]>('/schools'),
       apiRequest<AdminUser[]>('/users'),
     ]);
-    setTeams(teamsData ?? []);
+    setTeams(((teamsData as unknown as Array<Record<string, unknown>>) ?? []).map(normalizeTeam));
     setUserTypes(userTypesData ?? []);
     setSchools(schoolsData ?? []);
     setUsers(usersData ?? []);
@@ -381,7 +412,8 @@ function App() {
       apiRequest<DocumentItem[]>(`/my-team-docs?managerUserId=${managerUserId}`),
     ]);
 
-    const filteredTeams = (managerTeams ?? []).filter((team) => team.manager_user_id === managerUserId);
+    const normalizedTeams = ((managerTeams as unknown as Array<Record<string, unknown>>) ?? []).map(normalizeTeam);
+    const filteredTeams = normalizedTeams.filter((team) => team.manager_user_ids.includes(managerUserId));
     setTeams(filteredTeams);
     setTeamDocs(docs ?? []);
     setTeamDocForm((prev) => ({
@@ -541,11 +573,14 @@ function App() {
     const { entity, id, payload } = editPanel;
     const submit = async () => {
       if (entity === 'TEAM') {
+        const managerUserIds = Array.isArray(payload.managerUserIds)
+          ? (payload.managerUserIds as number[])
+          : [];
         await apiRequest(`/teams/${id}`, {
           method: 'PUT',
           body: JSON.stringify({
             name: payload.name,
-            managerUserId: payload.managerUserId === '' ? null : Number(payload.managerUserId),
+            managerUserIds,
           }),
         });
       }
@@ -758,11 +793,16 @@ function App() {
                         className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
                       />
                       <select
-                        value={teamForm.managerUserId}
-                        onChange={(e) => setTeamForm((p) => ({ ...p, managerUserId: e.target.value }))}
-                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                        multiple
+                        value={teamForm.managerUserIds.map(String)}
+                        onChange={(e) =>
+                          setTeamForm((p) => ({
+                            ...p,
+                            managerUserIds: Array.from(e.target.selectedOptions).map((opt) => Number(opt.value)),
+                          }))
+                        }
+                        className="h-24 border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
                       >
-                        <option value="">No manager</option>
                         {users.map((u) => (
                           <option key={u.id} value={u.id}>
                             {u.full_name}
@@ -776,10 +816,10 @@ function App() {
                               method: 'POST',
                               body: JSON.stringify({
                                 name: teamForm.name,
-                                managerUserId: teamForm.managerUserId ? Number(teamForm.managerUserId) : null,
+                                managerUserIds: teamForm.managerUserIds,
                               }),
                             });
-                            setTeamForm({ name: '', managerUserId: '' });
+                            setTeamForm({ name: '', managerUserIds: [] });
                             setNewForms((prev) => ({ ...prev, teams: false }));
                           }, 'Team created')
                         }
@@ -794,14 +834,14 @@ function App() {
                         <div key={team.id} className="flex items-center justify-between border border-slate-200 p-2 text-sm dark:border-slate-700">
                           <div>
                             <p className="font-semibold">{team.name}</p>
-                            <p className="text-xs text-slate-500">Manager: {team.manager_name ?? 'Unassigned'}</p>
+                            <p className="text-xs text-slate-500">Managers: {team.manager_names || 'Unassigned'}</p>
                           </div>
                           <div className="space-x-2">
                             <button
                               onClick={() =>
                                 openEditPanel('TEAM', team.id, `Edit Team: ${team.name}`, {
                                   name: team.name,
-                                  managerUserId: String(team.manager_user_id ?? ''),
+                                  managerUserIds: team.manager_user_ids,
                                 })
                               }
                               className="border border-slate-300 px-2 py-1 text-xs"
@@ -1642,23 +1682,26 @@ function App() {
                       />
                     </label>
                     <label className="block">
-                      <span className="mb-1 block text-xs uppercase text-slate-500">Manager</span>
+                      <span className="mb-1 block text-xs uppercase text-slate-500">Managers</span>
                       <select
-                        value={payloadString('managerUserId')}
+                        multiple
+                        value={payloadNumberArray('managerUserIds').map(String)}
                         onChange={(e) =>
-                          setEditPanel((prev) =>
-                            prev ? { ...prev, payload: { ...prev.payload, managerUserId: e.target.value } } : prev
-                          )
+                          setEditPanel((prev) => {
+                            if (!prev) return prev;
+                            const managerUserIds = Array.from(e.target.selectedOptions).map((opt) => Number(opt.value));
+                            return { ...prev, payload: { ...prev.payload, managerUserIds } };
+                          })
                         }
-                        className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                        className="h-28 w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
                       >
-                        <option value="">No manager</option>
                         {users.map((u) => (
                           <option key={u.id} value={u.id}>
                             {u.full_name}
                           </option>
                         ))}
                       </select>
+                      <p className="mt-1 text-xs text-slate-500">Hold Ctrl/Cmd to select multiple managers.</p>
                     </label>
                   </>
                 )}

@@ -80,9 +80,10 @@ paths:
               properties:
                 name:
                   type: string
-                managerUserId:
-                  type: integer
-                  nullable: true
+                managerUserIds:
+                  type: array
+                  items:
+                    type: integer
       responses:
         '201':
           description: Created
@@ -110,9 +111,10 @@ paths:
               properties:
                 name:
                   type: string
-                managerUserId:
-                  type: integer
-                  nullable: true
+                managerUserIds:
+                  type: array
+                  items:
+                    type: integer
       responses:
         '200':
           description: Updated
@@ -797,10 +799,11 @@ components:
           type: integer
         name:
           type: string
-        manager_user_id:
-          type: integer
-          nullable: true
-        manager_name:
+        manager_user_ids:
+          type: array
+          items:
+            type: integer
+        manager_names:
           type: string
           nullable: true
         created_at:
