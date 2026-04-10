@@ -90,6 +90,8 @@ type DocumentDetails = {
   }>;
 };
 
+type EditEntity = 'TEAM' | 'USER_TYPE' | 'SCHOOL' | 'USER' | 'DOCUMENT';
+
 const API_BASE = 'http://localhost:3001/api';
 const NAVY = '#004a7c';
 const ACCENT = '#0078d4';
@@ -298,6 +300,12 @@ function App() {
   const [activeDetailTab, setActiveDetailTab] = useState<'DETAILS' | 'ACTIVITY'>('DETAILS');
   const [panelWidth, setPanelWidth] = useState(50);
   const [panelPinned, setPanelPinned] = useState(false);
+  const [editPanel, setEditPanel] = useState<{
+    entity: EditEntity;
+    id: number;
+    title: string;
+    payload: Record<string, string>;
+  } | null>(null);
 
   const [theme, setTheme] = useState({
     app: '#f8fafc',
@@ -461,6 +469,83 @@ function App() {
 
   const isAdminPage = activeUser?.role === 'ADMINISTRATOR' && activePage !== 'Dashboard';
   const isMyTeamDocsPage = activeUser?.role === 'TEAM_MANAGER' && activePage === 'My Team Docs';
+
+  const openEditPanel = (
+    entity: EditEntity,
+    id: number,
+    title: string,
+    payload: Record<string, string>
+  ) => {
+    setSelectedDocId(null);
+    setEditPanel({ entity, id, title, payload });
+  };
+
+  const saveEditPanel = async () => {
+    if (!editPanel) return;
+
+    const { entity, id, payload } = editPanel;
+    const submit = async () => {
+      if (entity === 'TEAM') {
+        await apiRequest(`/teams/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: payload.name,
+            managerUserId: payload.managerUserId === '' ? null : Number(payload.managerUserId),
+          }),
+        });
+      }
+
+      if (entity === 'USER_TYPE') {
+        await apiRequest(`/user-types/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ name: payload.name }),
+        });
+      }
+
+      if (entity === 'SCHOOL') {
+        await apiRequest(`/schools/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ name: payload.name }),
+        });
+      }
+
+      if (entity === 'USER') {
+        await apiRequest(`/users/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            fullName: payload.fullName,
+            email: payload.email,
+            role: payload.role,
+            schoolId: payload.schoolId ? Number(payload.schoolId) : null,
+            userTypeId: payload.userTypeId ? Number(payload.userTypeId) : null,
+            isActive: payload.isActive === '1' ? 1 : 0,
+          }),
+        });
+      }
+
+      if (entity === 'DOCUMENT') {
+        await apiRequest(`/documents/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            title: payload.title,
+            description: payload.description,
+            dueDate: payload.dueDate,
+            schedule: payload.schedule,
+            actorUserId: activeUser?.id,
+          }),
+        });
+      }
+    };
+
+    await withAction(async () => {
+      await submit();
+      if (activeUser?.role === 'TEAM_MANAGER') {
+        await refreshTeamManagerDocs(activeUser.id);
+      }
+    }, 'Entity updated');
+
+    setEditPanel(null);
+  };
 
   return (
     <div className="min-h-screen bg-[var(--theme-app)] text-slate-900 dark:bg-slate-950 dark:text-slate-100">
@@ -643,23 +728,12 @@ function App() {
                           </div>
                           <div className="space-x-2">
                             <button
-                              onClick={() => {
-                                const name = window.prompt('Team name', team.name);
-                                if (!name) return;
-                                const manager = window.prompt('Manager user id (empty to keep)', String(team.manager_user_id ?? ''));
-                                withAction(
-                                  async () => {
-                                    await apiRequest(`/teams/${team.id}`, {
-                                      method: 'PUT',
-                                      body: JSON.stringify({
-                                        name,
-                                        managerUserId: manager === '' ? null : Number(manager),
-                                      }),
-                                    });
-                                  },
-                                  'Team updated'
-                                );
-                              }}
+                              onClick={() =>
+                                openEditPanel('TEAM', team.id, `Edit Team: ${team.name}`, {
+                                  name: team.name,
+                                  managerUserId: String(team.manager_user_id ?? ''),
+                                })
+                              }
                               className="border border-slate-300 px-2 py-1 text-xs"
                             >
                               Edit
@@ -715,19 +789,11 @@ function App() {
                           <span>{item.name}</span>
                           <div className="space-x-2">
                             <button
-                              onClick={() => {
-                                const name = window.prompt('User type name', item.name);
-                                if (!name) return;
-                                withAction(
-                                  async () => {
-                                    await apiRequest(`/user-types/${item.id}`, {
-                                      method: 'PUT',
-                                      body: JSON.stringify({ name }),
-                                    });
-                                  },
-                                  'User type updated'
-                                );
-                              }}
+                              onClick={() =>
+                                openEditPanel('USER_TYPE', item.id, `Edit User Type: ${item.name}`, {
+                                  name: item.name,
+                                })
+                              }
                               className="border border-slate-300 px-2 py-1 text-xs"
                             >
                               Edit
@@ -783,19 +849,11 @@ function App() {
                           <span>{item.name}</span>
                           <div className="space-x-2">
                             <button
-                              onClick={() => {
-                                const name = window.prompt('School name', item.name);
-                                if (!name) return;
-                                withAction(
-                                  async () => {
-                                    await apiRequest(`/schools/${item.id}`, {
-                                      method: 'PUT',
-                                      body: JSON.stringify({ name }),
-                                    });
-                                  },
-                                  'School updated'
-                                );
-                              }}
+                              onClick={() =>
+                                openEditPanel('SCHOOL', item.id, `Edit School: ${item.name}`, {
+                                  name: item.name,
+                                })
+                              }
                               className="border border-slate-300 px-2 py-1 text-xs"
                             >
                               Edit
@@ -909,21 +967,16 @@ function App() {
                           </div>
                           <div className="space-x-2">
                             <button
-                              onClick={() => {
-                                const fullName = window.prompt('Full name', u.full_name);
-                                if (!fullName) return;
-                                const role = window.prompt('Role (ADMINISTRATOR, TEAM_MANAGER, USER)', u.role);
-                                if (!role) return;
-                                withAction(
-                                  async () => {
-                                    await apiRequest(`/users/${u.id}`, {
-                                      method: 'PUT',
-                                      body: JSON.stringify({ fullName, role }),
-                                    });
-                                  },
-                                  'User updated'
-                                );
-                              }}
+                              onClick={() =>
+                                openEditPanel('USER', u.id, `Edit User: ${u.full_name}`, {
+                                  fullName: u.full_name,
+                                  email: u.email,
+                                  role: u.role,
+                                  schoolId: String(u.school_id ?? ''),
+                                  userTypeId: String(u.user_type_id ?? ''),
+                                  isActive: String(u.is_active),
+                                })
+                              }
                               className="border border-slate-300 px-2 py-1 text-xs"
                             >
                               Edit
@@ -1075,19 +1128,14 @@ function App() {
                           </div>
                           <div className="space-x-2">
                             <button
-                              onClick={() => {
-                                const title = window.prompt('Document title', doc.title);
-                                if (!title) return;
-                                withAction(
-                                  async () => {
-                                    await apiRequest(`/documents/${doc.id}`, {
-                                      method: 'PUT',
-                                      body: JSON.stringify({ title, actorUserId: activeUser?.id }),
-                                    });
-                                  },
-                                  'Document updated'
-                                );
-                              }}
+                              onClick={() =>
+                                openEditPanel('DOCUMENT', doc.id, `Edit Document: ${doc.title}`, {
+                                  title: doc.title,
+                                  description: doc.description ?? '',
+                                  dueDate: doc.due_date.slice(0, 10),
+                                  schedule: doc.schedule,
+                                })
+                              }
                               className="border border-slate-300 px-2 py-1 text-xs"
                             >
                               Edit
@@ -1243,27 +1291,14 @@ function App() {
                         </div>
                         <div className="space-x-2">
                           <button
-                            onClick={() => {
-                              const title = window.prompt('Document title', doc.title);
-                              if (!title) return;
-                              const description = window.prompt('Description', doc.description ?? '');
-                              const dueDate = window.prompt('Due date (YYYY-MM-DD)', doc.due_date.slice(0, 10));
-                              withAction(
-                                async () => {
-                                  await apiRequest(`/documents/${doc.id}`, {
-                                    method: 'PUT',
-                                    body: JSON.stringify({
-                                      title,
-                                      description: description ?? doc.description,
-                                      dueDate: dueDate ?? doc.due_date,
-                                      actorUserId: activeUser?.id,
-                                    }),
-                                  });
-                                  if (activeUser) await refreshTeamManagerDocs(activeUser.id);
-                                },
-                                'Team document updated'
-                              );
-                            }}
+                            onClick={() =>
+                              openEditPanel('DOCUMENT', doc.id, `Edit Team Document: ${doc.title}`, {
+                                title: doc.title,
+                                description: doc.description ?? '',
+                                dueDate: doc.due_date.slice(0, 10),
+                                schedule: doc.schedule,
+                              })
+                            }
                             className="border border-slate-300 px-2 py-1 text-xs"
                           >
                             Edit
@@ -1384,6 +1419,281 @@ function App() {
           </div>
         </main>
       </div>
+
+      <AnimatePresence>
+        {editPanel && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setEditPanel(null)}
+              className="fixed inset-0 z-40 bg-slate-900/20"
+            />
+            <motion.aside
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ duration: 0.24, ease: 'easeInOut' }}
+              className="fixed right-0 top-0 z-50 h-screen w-full max-w-2xl overflow-y-auto border-l border-slate-300 bg-white p-4 dark:border-slate-700 dark:bg-slate-950"
+            >
+              <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-2 dark:border-slate-700">
+                <h3 className="text-lg font-semibold">{editPanel.title}</h3>
+                <button
+                  onClick={() => setEditPanel(null)}
+                  className="rounded-[3px] border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="space-y-3 text-sm">
+                {editPanel.entity === 'TEAM' && (
+                  <>
+                    <label className="block">
+                      <span className="mb-1 block text-xs uppercase text-slate-500">Team Name</span>
+                      <input
+                        value={editPanel.payload.name ?? ''}
+                        onChange={(e) =>
+                          setEditPanel((prev) =>
+                            prev ? { ...prev, payload: { ...prev.payload, name: e.target.value } } : prev
+                          )
+                        }
+                        className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs uppercase text-slate-500">Manager</span>
+                      <select
+                        value={editPanel.payload.managerUserId ?? ''}
+                        onChange={(e) =>
+                          setEditPanel((prev) =>
+                            prev ? { ...prev, payload: { ...prev.payload, managerUserId: e.target.value } } : prev
+                          )
+                        }
+                        className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                      >
+                        <option value="">No manager</option>
+                        {users.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.full_name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </>
+                )}
+
+                {editPanel.entity === 'USER_TYPE' && (
+                  <label className="block">
+                    <span className="mb-1 block text-xs uppercase text-slate-500">User Type Name</span>
+                    <input
+                      value={editPanel.payload.name ?? ''}
+                      onChange={(e) =>
+                        setEditPanel((prev) =>
+                          prev ? { ...prev, payload: { ...prev.payload, name: e.target.value } } : prev
+                        )
+                      }
+                      className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                    />
+                  </label>
+                )}
+
+                {editPanel.entity === 'SCHOOL' && (
+                  <label className="block">
+                    <span className="mb-1 block text-xs uppercase text-slate-500">School Name</span>
+                    <input
+                      value={editPanel.payload.name ?? ''}
+                      onChange={(e) =>
+                        setEditPanel((prev) =>
+                          prev ? { ...prev, payload: { ...prev.payload, name: e.target.value } } : prev
+                        )
+                      }
+                      className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                    />
+                  </label>
+                )}
+
+                {editPanel.entity === 'USER' && (
+                  <>
+                    <label className="block">
+                      <span className="mb-1 block text-xs uppercase text-slate-500">Full Name</span>
+                      <input
+                        value={editPanel.payload.fullName ?? ''}
+                        onChange={(e) =>
+                          setEditPanel((prev) =>
+                            prev ? { ...prev, payload: { ...prev.payload, fullName: e.target.value } } : prev
+                          )
+                        }
+                        className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs uppercase text-slate-500">Email</span>
+                      <input
+                        value={editPanel.payload.email ?? ''}
+                        onChange={(e) =>
+                          setEditPanel((prev) =>
+                            prev ? { ...prev, payload: { ...prev.payload, email: e.target.value } } : prev
+                          )
+                        }
+                        className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs uppercase text-slate-500">Role</span>
+                      <select
+                        value={editPanel.payload.role ?? 'USER'}
+                        onChange={(e) =>
+                          setEditPanel((prev) =>
+                            prev ? { ...prev, payload: { ...prev.payload, role: e.target.value } } : prev
+                          )
+                        }
+                        className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                      >
+                        <option value="ADMINISTRATOR">ADMINISTRATOR</option>
+                        <option value="TEAM_MANAGER">TEAM_MANAGER</option>
+                        <option value="USER">USER</option>
+                      </select>
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="block">
+                        <span className="mb-1 block text-xs uppercase text-slate-500">School</span>
+                        <select
+                          value={editPanel.payload.schoolId ?? ''}
+                          onChange={(e) =>
+                            setEditPanel((prev) =>
+                              prev ? { ...prev, payload: { ...prev.payload, schoolId: e.target.value } } : prev
+                            )
+                          }
+                          className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                        >
+                          <option value="">None</option>
+                          {schools.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs uppercase text-slate-500">User Type</span>
+                        <select
+                          value={editPanel.payload.userTypeId ?? ''}
+                          onChange={(e) =>
+                            setEditPanel((prev) =>
+                              prev ? { ...prev, payload: { ...prev.payload, userTypeId: e.target.value } } : prev
+                            )
+                          }
+                          className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                        >
+                          <option value="">None</option>
+                          {userTypes.map((ut) => (
+                            <option key={ut.id} value={ut.id}>
+                              {ut.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <label className="block">
+                      <span className="mb-1 block text-xs uppercase text-slate-500">Active</span>
+                      <select
+                        value={editPanel.payload.isActive ?? '1'}
+                        onChange={(e) =>
+                          setEditPanel((prev) =>
+                            prev ? { ...prev, payload: { ...prev.payload, isActive: e.target.value } } : prev
+                          )
+                        }
+                        className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                      >
+                        <option value="1">Active</option>
+                        <option value="0">Inactive</option>
+                      </select>
+                    </label>
+                  </>
+                )}
+
+                {editPanel.entity === 'DOCUMENT' && (
+                  <>
+                    <label className="block">
+                      <span className="mb-1 block text-xs uppercase text-slate-500">Title</span>
+                      <input
+                        value={editPanel.payload.title ?? ''}
+                        onChange={(e) =>
+                          setEditPanel((prev) =>
+                            prev ? { ...prev, payload: { ...prev.payload, title: e.target.value } } : prev
+                          )
+                        }
+                        className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs uppercase text-slate-500">Description</span>
+                      <textarea
+                        value={editPanel.payload.description ?? ''}
+                        onChange={(e) =>
+                          setEditPanel((prev) =>
+                            prev ? { ...prev, payload: { ...prev.payload, description: e.target.value } } : prev
+                          )
+                        }
+                        className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                        rows={3}
+                      />
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="block">
+                        <span className="mb-1 block text-xs uppercase text-slate-500">Due Date</span>
+                        <input
+                          type="date"
+                          value={editPanel.payload.dueDate ?? ''}
+                          onChange={(e) =>
+                            setEditPanel((prev) =>
+                              prev ? { ...prev, payload: { ...prev.payload, dueDate: e.target.value } } : prev
+                            )
+                          }
+                          className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs uppercase text-slate-500">Schedule</span>
+                        <select
+                          value={editPanel.payload.schedule ?? 'YEARLY'}
+                          onChange={(e) =>
+                            setEditPanel((prev) =>
+                              prev ? { ...prev, payload: { ...prev.payload, schedule: e.target.value } } : prev
+                            )
+                          }
+                          className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                        >
+                          <option value="MONTHLY">MONTHLY</option>
+                          <option value="QUARTERLY">QUARTERLY</option>
+                          <option value="YEARLY">YEARLY</option>
+                        </select>
+                      </label>
+                    </div>
+                  </>
+                )}
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    onClick={saveEditPanel}
+                    className="rounded-[3px] border border-blue-400 bg-blue-600 px-3 py-2 text-xs font-semibold text-white"
+                  >
+                    Save Changes
+                  </button>
+                  <button
+                    onClick={() => setEditPanel(null)}
+                    className="rounded-[3px] border border-slate-300 px-3 py-2 text-xs hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {selectedDocId && docDetails && (
