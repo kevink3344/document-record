@@ -419,6 +419,20 @@ paths:
         '201':
           description: Created
 
+  /api/my-team-docs:
+    get:
+      tags: [Documents]
+      summary: List documents for teams managed by a team manager
+      parameters:
+        - in: query
+          name: managerUserId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Team manager document list
+
   /api/documents/{id}:
     get:
       tags: [Documents]

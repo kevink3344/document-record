@@ -249,6 +249,7 @@ function App() {
 
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [teamDocs, setTeamDocs] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [teams, setTeams] = useState<Team[]>([]);
@@ -268,6 +269,18 @@ function App() {
     isActive: true,
   });
   const [docForm, setDocForm] = useState({
+    title: '',
+    description: '',
+    content: '',
+    teamId: '',
+    documentType: 'PDF',
+    schedule: 'YEARLY' as 'MONTHLY' | 'QUARTERLY' | 'YEARLY',
+    dueDate: '',
+    endDate: '',
+    fileUrl: '',
+    userTypeIds: [] as number[],
+  });
+  const [teamDocForm, setTeamDocForm] = useState({
     title: '',
     description: '',
     content: '',
@@ -333,6 +346,21 @@ function App() {
     setUsers(usersData ?? []);
   };
 
+  const refreshTeamManagerDocs = async (managerUserId: number) => {
+    const [managerTeams, docs] = await Promise.all([
+      apiRequest<Team[]>('/teams'),
+      apiRequest<DocumentItem[]>(`/my-team-docs?managerUserId=${managerUserId}`),
+    ]);
+
+    const filteredTeams = (managerTeams ?? []).filter((team) => team.manager_user_id === managerUserId);
+    setTeams(filteredTeams);
+    setTeamDocs(docs ?? []);
+    setTeamDocForm((prev) => ({
+      ...prev,
+      teamId: prev.teamId || String(filteredTeams[0]?.id ?? ''),
+    }));
+  };
+
   const refreshAll = async () => {
     await fetchLookups();
     if (activeUserId) {
@@ -354,6 +382,12 @@ function App() {
   useEffect(() => {
     refreshAdminData().catch(() => undefined);
   }, [activeUser?.role]);
+
+  useEffect(() => {
+    if (activeUser?.role === 'TEAM_MANAGER' && activePage === 'My Team Docs') {
+      refreshTeamManagerDocs(activeUser.id).catch(() => undefined);
+    }
+  }, [activeUser?.id, activeUser?.role, activePage]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -426,6 +460,7 @@ function App() {
   };
 
   const isAdminPage = activeUser?.role === 'ADMINISTRATOR' && activePage !== 'Dashboard';
+  const isMyTeamDocsPage = activeUser?.role === 'TEAM_MANAGER' && activePage === 'My Team Docs';
 
   return (
     <div className="min-h-screen bg-[var(--theme-app)] text-slate-900 dark:bg-slate-950 dark:text-slate-100">
@@ -1077,6 +1112,176 @@ function App() {
                   </section>
                 )}
               </>
+            ) : isMyTeamDocsPage ? (
+              <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
+                <h3 className="mb-3 text-sm font-semibold uppercase">My Team Docs</h3>
+                <p className="mb-3 text-xs text-slate-500">Manage documents assigned to your team(s). You can add new documents or edit existing ones.</p>
+
+                <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-3">
+                  <select
+                    value={teamDocForm.teamId}
+                    onChange={(e) => setTeamDocForm((p) => ({ ...p, teamId: e.target.value }))}
+                    className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                  >
+                    <option value="">Team</option>
+                    {teams.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    placeholder="Title"
+                    value={teamDocForm.title}
+                    onChange={(e) => setTeamDocForm((p) => ({ ...p, title: e.target.value }))}
+                    className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                  />
+                  <input
+                    placeholder="Description"
+                    value={teamDocForm.description}
+                    onChange={(e) => setTeamDocForm((p) => ({ ...p, description: e.target.value }))}
+                    className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                  />
+                  <input
+                    placeholder="Content"
+                    value={teamDocForm.content}
+                    onChange={(e) => setTeamDocForm((p) => ({ ...p, content: e.target.value }))}
+                    className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                  />
+                  <select
+                    value={teamDocForm.schedule}
+                    onChange={(e) =>
+                      setTeamDocForm((p) => ({ ...p, schedule: e.target.value as 'MONTHLY' | 'QUARTERLY' | 'YEARLY' }))
+                    }
+                    className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                  >
+                    <option value="MONTHLY">MONTHLY</option>
+                    <option value="QUARTERLY">QUARTERLY</option>
+                    <option value="YEARLY">YEARLY</option>
+                  </select>
+                  <input
+                    type="date"
+                    value={teamDocForm.dueDate}
+                    onChange={(e) => setTeamDocForm((p) => ({ ...p, dueDate: e.target.value }))}
+                    className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                  />
+                  <input
+                    type="date"
+                    value={teamDocForm.endDate}
+                    onChange={(e) => setTeamDocForm((p) => ({ ...p, endDate: e.target.value }))}
+                    className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                  />
+                  <input
+                    placeholder="File URL"
+                    value={teamDocForm.fileUrl}
+                    onChange={(e) => setTeamDocForm((p) => ({ ...p, fileUrl: e.target.value }))}
+                    className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                  />
+                  <select
+                    multiple
+                    value={teamDocForm.userTypeIds.map(String)}
+                    onChange={(e) =>
+                      setTeamDocForm((p) => ({
+                        ...p,
+                        userTypeIds: Array.from(e.target.selectedOptions).map((opt) => Number(opt.value)),
+                      }))
+                    }
+                    className="h-24 border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                  >
+                    {lookups.userTypes.map((ut) => (
+                      <option key={ut.id} value={ut.id}>
+                        {ut.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() =>
+                      withAction(async () => {
+                        if (!activeUser) return;
+                        await apiRequest('/documents', {
+                          method: 'POST',
+                          body: JSON.stringify({
+                            teamId: Number(teamDocForm.teamId),
+                            title: teamDocForm.title,
+                            description: teamDocForm.description,
+                            content: teamDocForm.content,
+                            documentType: teamDocForm.documentType,
+                            schedule: teamDocForm.schedule,
+                            dueDate: teamDocForm.dueDate,
+                            endDate: teamDocForm.endDate,
+                            fileUrl: teamDocForm.fileUrl,
+                            userTypeIds: teamDocForm.userTypeIds,
+                            actorUserId: activeUser.id,
+                          }),
+                        });
+                        await refreshTeamManagerDocs(activeUser.id);
+                        setTeamDocForm((p) => ({
+                          ...p,
+                          title: '',
+                          description: '',
+                          content: '',
+                          dueDate: '',
+                          endDate: '',
+                          fileUrl: '',
+                          userTypeIds: [],
+                        }));
+                      }, 'Team document created')
+                    }
+                    className="border border-blue-400 bg-blue-600 px-2 py-2 text-xs font-semibold text-white"
+                  >
+                    Add Team Document
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  {teamDocs.length ? (
+                    teamDocs.map((doc) => (
+                      <div key={doc.id} className="flex items-center justify-between border border-slate-200 p-2 text-sm dark:border-slate-700">
+                        <div>
+                          <p className="font-semibold">{doc.title}</p>
+                          <p className="text-xs text-slate-500">{doc.team_name} • {doc.schedule} • {formatDueText(doc.due_date)}</p>
+                        </div>
+                        <div className="space-x-2">
+                          <button
+                            onClick={() => {
+                              const title = window.prompt('Document title', doc.title);
+                              if (!title) return;
+                              const description = window.prompt('Description', doc.description ?? '');
+                              const dueDate = window.prompt('Due date (YYYY-MM-DD)', doc.due_date.slice(0, 10));
+                              withAction(
+                                async () => {
+                                  await apiRequest(`/documents/${doc.id}`, {
+                                    method: 'PUT',
+                                    body: JSON.stringify({
+                                      title,
+                                      description: description ?? doc.description,
+                                      dueDate: dueDate ?? doc.due_date,
+                                      actorUserId: activeUser?.id,
+                                    }),
+                                  });
+                                  if (activeUser) await refreshTeamManagerDocs(activeUser.id);
+                                },
+                                'Team document updated'
+                              );
+                            }}
+                            className="border border-slate-300 px-2 py-1 text-xs"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => setSelectedDocId(doc.id)}
+                            className="border border-slate-300 px-2 py-1 text-xs"
+                          >
+                            View
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-slate-500">No documents found for your managed team(s).</p>
+                  )}
+                </div>
+              </section>
             ) : loading || !dashboard || !activeUser ? (
               <div className="rounded-[3px] border border-slate-300 bg-[var(--theme-card)] p-6 text-sm">Loading DocRecord...</div>
             ) : (

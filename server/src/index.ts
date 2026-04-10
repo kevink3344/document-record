@@ -493,6 +493,46 @@ app.get('/api/documents', (req, res) => {
   res.json(withStatus);
 });
 
+app.get('/api/my-team-docs', (req, res) => {
+  const db = getDb();
+  const managerUserId = Number(req.query.managerUserId);
+  if (!managerUserId) return res.status(400).json({ error: 'managerUserId is required' });
+
+  const manager = db
+    .prepare('SELECT id FROM users WHERE id = ? AND role = ?')
+    .get(managerUserId, 'TEAM_MANAGER');
+  if (!manager) return res.status(404).json({ error: 'Team manager not found' });
+
+  const docs = db
+    .prepare(
+      `SELECT d.*, tm.name AS team_name,
+              GROUP_CONCAT(ut.name, ', ') AS user_types,
+              CASE WHEN EXISTS (
+                SELECT 1 FROM acknowledgments a
+                WHERE a.document_id = d.id AND a.user_id = ?
+              ) THEN 1 ELSE 0 END AS is_acknowledged
+       FROM documents d
+       INNER JOIN teams tm ON tm.id = d.team_id
+       LEFT JOIN document_user_types dut ON dut.document_id = d.id
+       LEFT JOIN user_types ut ON ut.id = dut.user_type_id
+       WHERE tm.manager_user_id = ?
+       GROUP BY d.id
+       ORDER BY d.due_date ASC`
+    )
+    .all(managerUserId, managerUserId);
+
+  const withStatus = (docs as Array<Record<string, unknown>>).map((doc) => {
+    const due = new Date(doc.due_date as string).getTime();
+    const now = Date.now();
+    let status = 'PENDING';
+    if (doc.is_acknowledged as number) status = 'COMPLETED';
+    else if (due < now) status = 'OVERDUE';
+    return { ...doc, status };
+  });
+
+  res.json(withStatus);
+});
+
 app.get('/api/documents/:id', (req, res) => {
   const db = getDb();
   const id = Number(req.params.id);
