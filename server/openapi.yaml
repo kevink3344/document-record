@@ -1,0 +1,793 @@
+openapi: 3.0.3
+info:
+  title: DocRecord API
+  version: 1.0.0
+  description: |
+    Enterprise document compliance API for DocRecord.
+    This file documents all currently implemented endpoints.
+servers:
+  - url: http://localhost:3001
+    description: Local development
+
+tags:
+  - name: Health
+  - name: Lookups
+  - name: Teams
+  - name: UserTypes
+  - name: Schools
+  - name: Users
+  - name: Auth
+  - name: Dashboard
+  - name: Documents
+  - name: DocumentUserTypes
+  - name: Acknowledgments
+  - name: ActivityFeed
+  - name: TicketTrend
+  - name: Reports
+
+paths:
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Health check
+      responses:
+        '200':
+          description: API healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /api/lookups:
+    get:
+      tags: [Lookups]
+      summary: Get consolidated lookup datasets
+      responses:
+        '200':
+          description: Lookup payload
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /api/teams:
+    get:
+      tags: [Teams]
+      summary: List teams
+      responses:
+        '200':
+          description: Team list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Team'
+    post:
+      tags: [Teams]
+      summary: Create team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                managerUserId:
+                  type: integer
+                  nullable: true
+      responses:
+        '201':
+          description: Created
+
+  /api/teams/{id}:
+    get:
+      tags: [Teams]
+      summary: Get team by id
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      responses:
+        '200':
+          description: Team record
+    put:
+      tags: [Teams]
+      summary: Update team
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                managerUserId:
+                  type: integer
+                  nullable: true
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Teams]
+      summary: Delete team
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      responses:
+        '204':
+          description: Deleted
+
+  /api/user-types:
+    get:
+      tags: [UserTypes]
+      summary: List user types
+      responses:
+        '200':
+          description: User type list
+    post:
+      tags: [UserTypes]
+      summary: Create user type
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        '201':
+          description: Created
+
+  /api/user-types/{id}:
+    get:
+      tags: [UserTypes]
+      summary: Get user type by id
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      responses:
+        '200':
+          description: User type record
+    put:
+      tags: [UserTypes]
+      summary: Update user type
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [UserTypes]
+      summary: Delete user type
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      responses:
+        '204':
+          description: Deleted
+
+  /api/schools:
+    get:
+      tags: [Schools]
+      summary: List schools
+      responses:
+        '200':
+          description: School list
+    post:
+      tags: [Schools]
+      summary: Create school
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        '201':
+          description: Created
+
+  /api/schools/{id}:
+    get:
+      tags: [Schools]
+      summary: Get school by id
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      responses:
+        '200':
+          description: School record
+    put:
+      tags: [Schools]
+      summary: Update school
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Schools]
+      summary: Delete school
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      responses:
+        '204':
+          description: Deleted
+
+  /api/users:
+    get:
+      tags: [Users]
+      summary: List users
+      responses:
+        '200':
+          description: User list
+    post:
+      tags: [Users]
+      summary: Create user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fullName, email, role]
+              properties:
+                fullName:
+                  type: string
+                email:
+                  type: string
+                role:
+                  type: string
+                  enum: [ADMINISTRATOR, TEAM_MANAGER, USER]
+                schoolId:
+                  type: integer
+                  nullable: true
+                userTypeId:
+                  type: integer
+                  nullable: true
+                isActive:
+                  type: integer
+      responses:
+        '201':
+          description: Created
+
+  /api/users/{id}:
+    get:
+      tags: [Users]
+      summary: Get user by id
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      responses:
+        '200':
+          description: User record
+    put:
+      tags: [Users]
+      summary: Update user
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fullName:
+                  type: string
+                email:
+                  type: string
+                role:
+                  type: string
+                  enum: [ADMINISTRATOR, TEAM_MANAGER, USER]
+                schoolId:
+                  type: integer
+                  nullable: true
+                userTypeId:
+                  type: integer
+                  nullable: true
+                isActive:
+                  type: integer
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Users]
+      summary: Delete user
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      responses:
+        '204':
+          description: Deleted
+
+  /api/register:
+    post:
+      tags: [Auth]
+      summary: Register end-user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fullName, email, schoolId, userTypeId]
+              properties:
+                fullName:
+                  type: string
+                email:
+                  type: string
+                schoolId:
+                  type: integer
+                userTypeId:
+                  type: integer
+      responses:
+        '201':
+          description: Created
+
+  /api/dashboard:
+    get:
+      tags: [Dashboard]
+      summary: Dashboard metrics for a user context
+      parameters:
+        - in: query
+          name: userId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Dashboard payload
+
+  /api/documents:
+    get:
+      tags: [Documents]
+      summary: List documents for user context
+      parameters:
+        - in: query
+          name: userId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Document list
+    post:
+      tags: [Documents]
+      summary: Create document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [teamId, title, schedule, dueDate, userTypeIds]
+              properties:
+                teamId:
+                  type: integer
+                title:
+                  type: string
+                description:
+                  type: string
+                content:
+                  type: string
+                documentType:
+                  type: string
+                schedule:
+                  type: string
+                  enum: [MONTHLY, QUARTERLY, YEARLY]
+                dueDate:
+                  type: string
+                endDate:
+                  type: string
+                fileUrl:
+                  type: string
+                userTypeIds:
+                  type: array
+                  items:
+                    type: integer
+                actorUserId:
+                  type: integer
+      responses:
+        '201':
+          description: Created
+
+  /api/documents/{id}:
+    get:
+      tags: [Documents]
+      summary: Get document details
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      responses:
+        '200':
+          description: Document detail payload
+    put:
+      tags: [Documents]
+      summary: Update document
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Documents]
+      summary: Delete document
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      responses:
+        '204':
+          description: Deleted
+
+  /api/documents/{id}/acknowledge:
+    post:
+      tags: [Documents]
+      summary: Acknowledge document for user
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId:
+                  type: integer
+                comment:
+                  type: string
+      responses:
+        '201':
+          description: Acknowledged
+
+  /api/document-user-types:
+    get:
+      tags: [DocumentUserTypes]
+      summary: List document-user-type mappings
+      parameters:
+        - in: query
+          name: documentId
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Mapping list
+    post:
+      tags: [DocumentUserTypes]
+      summary: Create mapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documentId, userTypeId]
+              properties:
+                documentId:
+                  type: integer
+                userTypeId:
+                  type: integer
+      responses:
+        '201':
+          description: Created
+    delete:
+      tags: [DocumentUserTypes]
+      summary: Delete mapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documentId, userTypeId]
+              properties:
+                documentId:
+                  type: integer
+                userTypeId:
+                  type: integer
+      responses:
+        '204':
+          description: Deleted
+
+  /api/acknowledgments:
+    get:
+      tags: [Acknowledgments]
+      summary: List acknowledgments
+      parameters:
+        - in: query
+          name: documentId
+          schema:
+            type: integer
+        - in: query
+          name: userId
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Acknowledgment list
+    post:
+      tags: [Acknowledgments]
+      summary: Create acknowledgment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documentId, userId]
+              properties:
+                documentId:
+                  type: integer
+                userId:
+                  type: integer
+                acknowledged:
+                  type: integer
+                comment:
+                  type: string
+      responses:
+        '201':
+          description: Created
+
+  /api/acknowledgments/{id}:
+    get:
+      tags: [Acknowledgments]
+      summary: Get acknowledgment
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      responses:
+        '200':
+          description: Acknowledgment record
+    put:
+      tags: [Acknowledgments]
+      summary: Update acknowledgment
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                acknowledged:
+                  type: integer
+                comment:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [Acknowledgments]
+      summary: Delete acknowledgment
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      responses:
+        '204':
+          description: Deleted
+
+  /api/activity-feed:
+    get:
+      tags: [ActivityFeed]
+      summary: List activity feed entries
+      parameters:
+        - in: query
+          name: entityType
+          schema:
+            type: string
+        - in: query
+          name: entityId
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Activity list
+    post:
+      tags: [ActivityFeed]
+      summary: Create activity feed entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entityType, entityId, message]
+              properties:
+                entityType:
+                  type: string
+                entityId:
+                  type: integer
+                message:
+                  type: string
+                actorUserId:
+                  type: integer
+                  nullable: true
+      responses:
+        '201':
+          description: Created
+
+  /api/activity-feed/{id}:
+    get:
+      tags: [ActivityFeed]
+      summary: Get activity feed entry
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      responses:
+        '200':
+          description: Activity record
+    put:
+      tags: [ActivityFeed]
+      summary: Update activity feed entry
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [ActivityFeed]
+      summary: Delete activity feed entry
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      responses:
+        '204':
+          description: Deleted
+
+  /api/ticket-trend:
+    get:
+      tags: [TicketTrend]
+      summary: List trend entries
+      parameters:
+        - in: query
+          name: teamId
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Trend list
+    post:
+      tags: [TicketTrend]
+      summary: Create trend entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [teamId, day, ticketCount]
+              properties:
+                teamId:
+                  type: integer
+                day:
+                  type: string
+                ticketCount:
+                  type: integer
+      responses:
+        '201':
+          description: Created
+
+  /api/ticket-trend/{id}:
+    get:
+      tags: [TicketTrend]
+      summary: Get trend entry
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      responses:
+        '200':
+          description: Trend record
+    put:
+      tags: [TicketTrend]
+      summary: Update trend entry
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                teamId:
+                  type: integer
+                day:
+                  type: string
+                ticketCount:
+                  type: integer
+      responses:
+        '200':
+          description: Updated
+    delete:
+      tags: [TicketTrend]
+      summary: Delete trend entry
+      parameters:
+        - $ref: '#/components/parameters/IdPathParam'
+      responses:
+        '204':
+          description: Deleted
+
+  /api/reports/compliance:
+    get:
+      tags: [Reports]
+      summary: Compliance report
+      parameters:
+        - in: query
+          name: schoolId
+          schema:
+            type: integer
+        - in: query
+          name: userTypeId
+          schema:
+            type: integer
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [PENDING, OVERDUE, COMPLETED]
+      responses:
+        '200':
+          description: Report rows
+
+components:
+  parameters:
+    IdPathParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+  schemas:
+    Team:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        manager_user_id:
+          type: integer
+          nullable: true
+        manager_name:
+          type: string
+          nullable: true
+        created_at:
+          type: string

@@ -21,6 +21,7 @@ import {
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 
 type Role = 'ADMINISTRATOR' | 'TEAM_MANAGER' | 'USER';
+type ViewMode = 'TABLE' | 'CARD';
 
 type LookupUser = {
   id: number;
@@ -35,11 +36,26 @@ type LookupUser = {
 
 type LookupItem = { id: number; name: string };
 
+type Team = { id: number; name: string; manager_user_id: number | null; manager_name?: string };
+type UserType = { id: number; name: string };
+type School = { id: number; name: string };
+
+type AdminUser = {
+  id: number;
+  full_name: string;
+  email: string;
+  role: Role;
+  school_id: number | null;
+  user_type_id: number | null;
+  is_active: number;
+};
+
 type DocumentItem = {
   id: number;
   title: string;
   description: string;
   content: string;
+  team_id?: number;
   team_name: string;
   due_date: string;
   end_date: string;
@@ -78,8 +94,7 @@ const API_BASE = 'http://localhost:3001/api';
 const NAVY = '#004a7c';
 const ACCENT = '#0078d4';
 
-GlobalWorkerOptions.workerSrc =
-  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
+GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
 
 function badgeClass(status: string): string {
   if (status === 'COMPLETED') return 'bg-emerald-100 text-emerald-900 border border-emerald-300';
@@ -93,6 +108,27 @@ function formatDueText(dateStr: string): string {
   if (delta < 0) return `Overdue by ${Math.abs(delta)} day${Math.abs(delta) === 1 ? '' : 's'}`;
   if (delta === 0) return 'Due today';
   return `Due in ${delta} day${delta === 1 ? '' : 's'}`;
+}
+
+async function apiRequest<T>(path: string, init?: RequestInit): Promise<T | null> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+    ...init,
+  });
+
+  if (!response.ok) {
+    let msg = `Request failed (${response.status})`;
+    try {
+      const payload = (await response.json()) as { error?: string };
+      if (payload.error) msg = payload.error;
+    } catch {
+      // no-op
+    }
+    throw new Error(msg);
+  }
+
+  if (response.status === 204) return null;
+  return (await response.json()) as T;
 }
 
 function TrendChart({ trend }: { trend: DashboardResponse['trend'] }) {
@@ -117,15 +153,7 @@ function TrendChart({ trend }: { trend: DashboardResponse['trend'] }) {
       </div>
       <svg viewBox="0 0 640 260" className="h-64 w-full bg-slate-50">
         {[0, 1, 2, 3, 4].map((n) => (
-          <line
-            key={n}
-            x1="40"
-            y1={30 + n * 50}
-            x2="620"
-            y2={30 + n * 50}
-            stroke="#dfe4ea"
-            strokeWidth="1"
-          />
+          <line key={n} x1="40" y1={30 + n * 50} x2="620" y2={30 + n * 50} stroke="#dfe4ea" strokeWidth="1" />
         ))}
         {teams.map(([teamName, points], index) => {
           const d = points
@@ -173,7 +201,7 @@ function PdfPreview({ url }: { url?: string }) {
         if (!context) return;
         canvas.width = viewport.width;
         canvas.height = viewport.height;
-        await page.render({ canvas: canvas, canvasContext: context, viewport }).promise;
+        await page.render({ canvas, canvasContext: context, viewport }).promise;
       } catch {
         if (!disposed) setError('Unable to render PDF preview. You can open it externally.');
       }
@@ -201,8 +229,10 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [search, setSearch] = useState('');
-  const [viewMode, setViewMode] = useState<'TABLE' | 'CARD'>('TABLE');
+  const [viewMode, setViewMode] = useState<ViewMode>('TABLE');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activePage, setActivePage] = useState('Dashboard');
+  const [notice, setNotice] = useState('');
 
   const [lookups, setLookups] = useState<{
     users: LookupUser[];
@@ -221,6 +251,35 @@ function App() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [userTypes, setUserTypes] = useState<UserType[]>([]);
+  const [schools, setSchools] = useState<School[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+
+  const [teamForm, setTeamForm] = useState({ name: '', managerUserId: '' });
+  const [userTypeForm, setUserTypeForm] = useState({ name: '' });
+  const [schoolForm, setSchoolForm] = useState({ name: '' });
+  const [userForm, setUserForm] = useState({
+    fullName: '',
+    email: '',
+    role: 'USER' as Role,
+    schoolId: '',
+    userTypeId: '',
+    isActive: true,
+  });
+  const [docForm, setDocForm] = useState({
+    title: '',
+    description: '',
+    content: '',
+    teamId: '',
+    documentType: 'PDF',
+    schedule: 'YEARLY' as 'MONTHLY' | 'QUARTERLY' | 'YEARLY',
+    dueDate: '',
+    endDate: '',
+    fileUrl: '',
+    userTypeIds: [] as number[],
+  });
+
   const [selectedDocId, setSelectedDocId] = useState<number | null>(null);
   const [docDetails, setDocDetails] = useState<DocumentDetails | null>(null);
   const [activeDetailTab, setActiveDetailTab] = useState<'DETAILS' | 'ACTIVITY'>('DETAILS');
@@ -236,8 +295,13 @@ function App() {
   });
 
   const fetchLookups = async () => {
-    const response = await fetch(`${API_BASE}/lookups`);
-    const data = await response.json();
+    const data = await apiRequest<{
+      users: LookupUser[];
+      teams: LookupItem[];
+      userTypes: LookupItem[];
+      schools: LookupItem[];
+    }>('/lookups');
+    if (!data) return;
     setLookups(data);
     if (!activeUserId && data.users.length) {
       setActiveUserId(data.users[0].id);
@@ -246,13 +310,35 @@ function App() {
 
   const refreshDashboard = async (userId: number) => {
     setLoading(true);
-    const [dashRes, docsRes] = await Promise.all([
-      fetch(`${API_BASE}/dashboard?userId=${userId}`),
-      fetch(`${API_BASE}/documents?userId=${userId}`),
+    const [dash, docs] = await Promise.all([
+      apiRequest<DashboardResponse>(`/dashboard?userId=${userId}`),
+      apiRequest<DocumentItem[]>(`/documents?userId=${userId}`),
     ]);
-    setDashboard(await dashRes.json());
-    setDocuments(await docsRes.json());
+    setDashboard(dash ?? null);
+    setDocuments(docs ?? []);
     setLoading(false);
+  };
+
+  const refreshAdminData = async () => {
+    if (!activeUser || activeUser.role !== 'ADMINISTRATOR') return;
+    const [teamsData, userTypesData, schoolsData, usersData] = await Promise.all([
+      apiRequest<Team[]>('/teams'),
+      apiRequest<UserType[]>('/user-types'),
+      apiRequest<School[]>('/schools'),
+      apiRequest<AdminUser[]>('/users'),
+    ]);
+    setTeams(teamsData ?? []);
+    setUserTypes(userTypesData ?? []);
+    setSchools(schoolsData ?? []);
+    setUsers(usersData ?? []);
+  };
+
+  const refreshAll = async () => {
+    await fetchLookups();
+    if (activeUserId) {
+      await refreshDashboard(activeUserId);
+    }
+    await refreshAdminData();
   };
 
   useEffect(() => {
@@ -264,6 +350,10 @@ function App() {
       refreshDashboard(activeUserId).catch(() => setLoading(false));
     }
   }, [activeUserId]);
+
+  useEffect(() => {
+    refreshAdminData().catch(() => undefined);
+  }, [activeUser?.role]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -280,9 +370,7 @@ function App() {
       setDocDetails(null);
       return;
     }
-    fetch(`${API_BASE}/documents/${selectedDocId}`)
-      .then((res) => res.json())
-      .then((data) => setDocDetails(data));
+    apiRequest<DocumentDetails>(`/documents/${selectedDocId}`).then((data) => setDocDetails(data as DocumentDetails));
   }, [selectedDocId]);
 
   const filteredDocuments = useMemo(() => {
@@ -299,22 +387,45 @@ function App() {
 
   const nav = useMemo(() => {
     if (!activeUser) return [];
-    if (activeUser.role === 'ADMINISTRATOR') return ['Dashboard', 'Teams', 'Users', 'Reports', 'Settings'];
+    if (activeUser.role === 'ADMINISTRATOR') {
+      return ['Dashboard', 'Teams', 'User Types', 'Schools', 'Users', 'Documents', 'Reports', 'Settings'];
+    }
     if (activeUser.role === 'TEAM_MANAGER') return ['Dashboard', 'My Team Docs', 'Activity', 'Reports'];
     return ['Dashboard', 'My Documents', 'History'];
   }, [activeUser]);
 
   const handleAcknowledge = async () => {
     if (!selectedDocId || !activeUser) return;
-    await fetch(`${API_BASE}/documents/${selectedDocId}/acknowledge`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: activeUser.id, comment: 'Acknowledged from DocRecord UI' }),
-    });
-    await refreshDashboard(activeUser.id);
-    const detail = await fetch(`${API_BASE}/documents/${selectedDocId}`).then((res) => res.json());
-    setDocDetails(detail);
+    try {
+      await apiRequest(`/documents/${selectedDocId}/acknowledge`, {
+        method: 'POST',
+        body: JSON.stringify({ userId: activeUser.id, comment: 'Acknowledged from DocRecord UI' }),
+      });
+      await refreshDashboard(activeUser.id);
+      const detail = await apiRequest<DocumentDetails>(`/documents/${selectedDocId}`);
+      setDocDetails(detail ?? null);
+      setNotice('Acknowledgment recorded.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Acknowledge failed');
+    }
   };
+
+  const updateNotice = (msg: string) => {
+    setNotice(msg);
+    window.setTimeout(() => setNotice(''), 2500);
+  };
+
+  const withAction = async (action: () => Promise<void>, successMessage: string) => {
+    try {
+      await action();
+      await refreshAll();
+      updateNotice(successMessage);
+    } catch (error) {
+      updateNotice(error instanceof Error ? error.message : 'Action failed');
+    }
+  };
+
+  const isAdminPage = activeUser?.role === 'ADMINISTRATOR' && activePage !== 'Dashboard';
 
   return (
     <div className="min-h-screen bg-[var(--theme-app)] text-slate-900 dark:bg-slate-950 dark:text-slate-100">
@@ -332,7 +443,8 @@ function App() {
             {nav.map((item) => (
               <button
                 key={item}
-                className="flex w-full items-center rounded-[3px] border border-transparent px-3 py-2 text-left hover:border-slate-300 hover:bg-slate-800"
+                onClick={() => setActivePage(item)}
+                className={`flex w-full items-center rounded-[3px] border px-3 py-2 text-left ${activePage === item ? 'border-slate-300 bg-slate-800' : 'border-transparent hover:border-slate-300 hover:bg-slate-800'}`}
               >
                 <LayoutGrid size={15} />
                 {!sidebarCollapsed && <span className="ml-2">{item}</span>}
@@ -421,6 +533,8 @@ function App() {
           </header>
 
           <div className="space-y-4 p-4">
+            {notice && <div className="rounded-[3px] border border-blue-200 bg-blue-50 p-2 text-xs text-blue-900">{notice}</div>}
+
             {settingsOpen && (
               <div className="grid grid-cols-2 gap-2 rounded-[3px] border border-slate-300 bg-[var(--theme-card)] p-3 text-xs dark:border-slate-700">
                 {[
@@ -435,9 +549,7 @@ function App() {
                     <input
                       type="color"
                       value={theme[key as keyof typeof theme]}
-                      onChange={(e) =>
-                        setTheme((prev) => ({ ...prev, [key]: e.target.value }))
-                      }
+                      onChange={(e) => setTheme((prev) => ({ ...prev, [key]: e.target.value }))}
                       className="h-7 w-14 rounded-[3px] border border-slate-300"
                     />
                   </label>
@@ -445,7 +557,527 @@ function App() {
               </div>
             )}
 
-            {loading || !dashboard || !activeUser ? (
+            {isAdminPage ? (
+              <>
+                {activePage === 'Teams' && (
+                  <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
+                    <h3 className="mb-3 text-sm font-semibold uppercase">Teams</h3>
+                    <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-3">
+                      <input
+                        placeholder="Team name"
+                        value={teamForm.name}
+                        onChange={(e) => setTeamForm((p) => ({ ...p, name: e.target.value }))}
+                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      />
+                      <select
+                        value={teamForm.managerUserId}
+                        onChange={(e) => setTeamForm((p) => ({ ...p, managerUserId: e.target.value }))}
+                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      >
+                        <option value="">No manager</option>
+                        {users.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.full_name}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() =>
+                          withAction(async () => {
+                            await apiRequest('/teams', {
+                              method: 'POST',
+                              body: JSON.stringify({
+                                name: teamForm.name,
+                                managerUserId: teamForm.managerUserId ? Number(teamForm.managerUserId) : null,
+                              }),
+                            });
+                            setTeamForm({ name: '', managerUserId: '' });
+                          }, 'Team created')
+                        }
+                        className="border border-blue-400 bg-blue-600 px-2 py-2 text-xs font-semibold text-white"
+                      >
+                        Create Team
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {teams.map((team) => (
+                        <div key={team.id} className="flex items-center justify-between border border-slate-200 p-2 text-sm dark:border-slate-700">
+                          <div>
+                            <p className="font-semibold">{team.name}</p>
+                            <p className="text-xs text-slate-500">Manager: {team.manager_name ?? 'Unassigned'}</p>
+                          </div>
+                          <div className="space-x-2">
+                            <button
+                              onClick={() => {
+                                const name = window.prompt('Team name', team.name);
+                                if (!name) return;
+                                const manager = window.prompt('Manager user id (empty to keep)', String(team.manager_user_id ?? ''));
+                                withAction(
+                                  async () => {
+                                    await apiRequest(`/teams/${team.id}`, {
+                                      method: 'PUT',
+                                      body: JSON.stringify({
+                                        name,
+                                        managerUserId: manager === '' ? null : Number(manager),
+                                      }),
+                                    });
+                                  },
+                                  'Team updated'
+                                );
+                              }}
+                              className="border border-slate-300 px-2 py-1 text-xs"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() =>
+                                withAction(
+                                  async () => {
+                                    await apiRequest(`/teams/${team.id}`, { method: 'DELETE' });
+                                  },
+                                  'Team deleted'
+                                )
+                              }
+                              className="border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-700"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {activePage === 'User Types' && (
+                  <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
+                    <h3 className="mb-3 text-sm font-semibold uppercase">User Types</h3>
+                    <div className="mb-4 flex gap-2">
+                      <input
+                        placeholder="User type name"
+                        value={userTypeForm.name}
+                        onChange={(e) => setUserTypeForm({ name: e.target.value })}
+                        className="flex-1 border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      />
+                      <button
+                        onClick={() =>
+                          withAction(async () => {
+                            await apiRequest('/user-types', {
+                              method: 'POST',
+                              body: JSON.stringify({ name: userTypeForm.name }),
+                            });
+                            setUserTypeForm({ name: '' });
+                          }, 'User type created')
+                        }
+                        className="border border-blue-400 bg-blue-600 px-2 py-2 text-xs font-semibold text-white"
+                      >
+                        Create
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {userTypes.map((item) => (
+                        <div key={item.id} className="flex items-center justify-between border border-slate-200 p-2 text-sm dark:border-slate-700">
+                          <span>{item.name}</span>
+                          <div className="space-x-2">
+                            <button
+                              onClick={() => {
+                                const name = window.prompt('User type name', item.name);
+                                if (!name) return;
+                                withAction(
+                                  async () => {
+                                    await apiRequest(`/user-types/${item.id}`, {
+                                      method: 'PUT',
+                                      body: JSON.stringify({ name }),
+                                    });
+                                  },
+                                  'User type updated'
+                                );
+                              }}
+                              className="border border-slate-300 px-2 py-1 text-xs"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() =>
+                                withAction(
+                                  async () => {
+                                    await apiRequest(`/user-types/${item.id}`, { method: 'DELETE' });
+                                  },
+                                  'User type deleted'
+                                )
+                              }
+                              className="border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-700"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {activePage === 'Schools' && (
+                  <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
+                    <h3 className="mb-3 text-sm font-semibold uppercase">Schools</h3>
+                    <div className="mb-4 flex gap-2">
+                      <input
+                        placeholder="School name"
+                        value={schoolForm.name}
+                        onChange={(e) => setSchoolForm({ name: e.target.value })}
+                        className="flex-1 border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      />
+                      <button
+                        onClick={() =>
+                          withAction(async () => {
+                            await apiRequest('/schools', {
+                              method: 'POST',
+                              body: JSON.stringify({ name: schoolForm.name }),
+                            });
+                            setSchoolForm({ name: '' });
+                          }, 'School created')
+                        }
+                        className="border border-blue-400 bg-blue-600 px-2 py-2 text-xs font-semibold text-white"
+                      >
+                        Create
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {schools.map((item) => (
+                        <div key={item.id} className="flex items-center justify-between border border-slate-200 p-2 text-sm dark:border-slate-700">
+                          <span>{item.name}</span>
+                          <div className="space-x-2">
+                            <button
+                              onClick={() => {
+                                const name = window.prompt('School name', item.name);
+                                if (!name) return;
+                                withAction(
+                                  async () => {
+                                    await apiRequest(`/schools/${item.id}`, {
+                                      method: 'PUT',
+                                      body: JSON.stringify({ name }),
+                                    });
+                                  },
+                                  'School updated'
+                                );
+                              }}
+                              className="border border-slate-300 px-2 py-1 text-xs"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() =>
+                                withAction(
+                                  async () => {
+                                    await apiRequest(`/schools/${item.id}`, { method: 'DELETE' });
+                                  },
+                                  'School deleted'
+                                )
+                              }
+                              className="border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-700"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {activePage === 'Users' && (
+                  <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
+                    <h3 className="mb-3 text-sm font-semibold uppercase">Users</h3>
+                    <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-3">
+                      <input
+                        placeholder="Full name"
+                        value={userForm.fullName}
+                        onChange={(e) => setUserForm((p) => ({ ...p, fullName: e.target.value }))}
+                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      />
+                      <input
+                        placeholder="Email"
+                        value={userForm.email}
+                        onChange={(e) => setUserForm((p) => ({ ...p, email: e.target.value }))}
+                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      />
+                      <select
+                        value={userForm.role}
+                        onChange={(e) => setUserForm((p) => ({ ...p, role: e.target.value as Role }))}
+                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      >
+                        <option value="ADMINISTRATOR">ADMINISTRATOR</option>
+                        <option value="TEAM_MANAGER">TEAM_MANAGER</option>
+                        <option value="USER">USER</option>
+                      </select>
+                      <select
+                        value={userForm.schoolId}
+                        onChange={(e) => setUserForm((p) => ({ ...p, schoolId: e.target.value }))}
+                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      >
+                        <option value="">School</option>
+                        {schools.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={userForm.userTypeId}
+                        onChange={(e) => setUserForm((p) => ({ ...p, userTypeId: e.target.value }))}
+                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      >
+                        <option value="">User type</option>
+                        {userTypes.map((ut) => (
+                          <option key={ut.id} value={ut.id}>
+                            {ut.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() =>
+                          withAction(async () => {
+                            await apiRequest('/users', {
+                              method: 'POST',
+                              body: JSON.stringify({
+                                fullName: userForm.fullName,
+                                email: userForm.email,
+                                role: userForm.role,
+                                schoolId: userForm.schoolId ? Number(userForm.schoolId) : null,
+                                userTypeId: userForm.userTypeId ? Number(userForm.userTypeId) : null,
+                                isActive: userForm.isActive ? 1 : 0,
+                              }),
+                            });
+                            setUserForm({
+                              fullName: '',
+                              email: '',
+                              role: 'USER',
+                              schoolId: '',
+                              userTypeId: '',
+                              isActive: true,
+                            });
+                          }, 'User created')
+                        }
+                        className="border border-blue-400 bg-blue-600 px-2 py-2 text-xs font-semibold text-white"
+                      >
+                        Create User
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {users.map((u) => (
+                        <div key={u.id} className="flex items-center justify-between border border-slate-200 p-2 text-sm dark:border-slate-700">
+                          <div>
+                            <p className="font-semibold">{u.full_name}</p>
+                            <p className="text-xs text-slate-500">
+                              {u.email} • {u.role} • {u.is_active ? 'Active' : 'Inactive'}
+                            </p>
+                          </div>
+                          <div className="space-x-2">
+                            <button
+                              onClick={() => {
+                                const fullName = window.prompt('Full name', u.full_name);
+                                if (!fullName) return;
+                                const role = window.prompt('Role (ADMINISTRATOR, TEAM_MANAGER, USER)', u.role);
+                                if (!role) return;
+                                withAction(
+                                  async () => {
+                                    await apiRequest(`/users/${u.id}`, {
+                                      method: 'PUT',
+                                      body: JSON.stringify({ fullName, role }),
+                                    });
+                                  },
+                                  'User updated'
+                                );
+                              }}
+                              className="border border-slate-300 px-2 py-1 text-xs"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() =>
+                                withAction(
+                                  async () => {
+                                    await apiRequest(`/users/${u.id}`, { method: 'DELETE' });
+                                  },
+                                  'User deleted'
+                                )
+                              }
+                              className="border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-700"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {activePage === 'Documents' && (
+                  <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
+                    <h3 className="mb-3 text-sm font-semibold uppercase">Documents</h3>
+                    <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-3">
+                      <input
+                        placeholder="Title"
+                        value={docForm.title}
+                        onChange={(e) => setDocForm((p) => ({ ...p, title: e.target.value }))}
+                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      />
+                      <input
+                        placeholder="Description"
+                        value={docForm.description}
+                        onChange={(e) => setDocForm((p) => ({ ...p, description: e.target.value }))}
+                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      />
+                      <input
+                        placeholder="Content"
+                        value={docForm.content}
+                        onChange={(e) => setDocForm((p) => ({ ...p, content: e.target.value }))}
+                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      />
+                      <select
+                        value={docForm.teamId}
+                        onChange={(e) => setDocForm((p) => ({ ...p, teamId: e.target.value }))}
+                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      >
+                        <option value="">Team</option>
+                        {teams.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={docForm.schedule}
+                        onChange={(e) => setDocForm((p) => ({ ...p, schedule: e.target.value as 'MONTHLY' | 'QUARTERLY' | 'YEARLY' }))}
+                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      >
+                        <option value="MONTHLY">MONTHLY</option>
+                        <option value="QUARTERLY">QUARTERLY</option>
+                        <option value="YEARLY">YEARLY</option>
+                      </select>
+                      <input
+                        type="date"
+                        value={docForm.dueDate}
+                        onChange={(e) => setDocForm((p) => ({ ...p, dueDate: e.target.value }))}
+                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      />
+                      <input
+                        type="date"
+                        value={docForm.endDate}
+                        onChange={(e) => setDocForm((p) => ({ ...p, endDate: e.target.value }))}
+                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      />
+                      <input
+                        placeholder="File URL"
+                        value={docForm.fileUrl}
+                        onChange={(e) => setDocForm((p) => ({ ...p, fileUrl: e.target.value }))}
+                        className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      />
+                      <select
+                        multiple
+                        value={docForm.userTypeIds.map(String)}
+                        onChange={(e) =>
+                          setDocForm((p) => ({
+                            ...p,
+                            userTypeIds: Array.from(e.target.selectedOptions).map((opt) => Number(opt.value)),
+                          }))
+                        }
+                        className="h-24 border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
+                      >
+                        {userTypes.map((ut) => (
+                          <option key={ut.id} value={ut.id}>
+                            {ut.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() =>
+                          withAction(async () => {
+                            if (!activeUser) return;
+                            await apiRequest('/documents', {
+                              method: 'POST',
+                              body: JSON.stringify({
+                                teamId: Number(docForm.teamId),
+                                title: docForm.title,
+                                description: docForm.description,
+                                content: docForm.content,
+                                documentType: docForm.documentType,
+                                schedule: docForm.schedule,
+                                dueDate: docForm.dueDate,
+                                endDate: docForm.endDate,
+                                fileUrl: docForm.fileUrl,
+                                userTypeIds: docForm.userTypeIds,
+                                actorUserId: activeUser.id,
+                              }),
+                            });
+                            setDocForm({
+                              title: '',
+                              description: '',
+                              content: '',
+                              teamId: '',
+                              documentType: 'PDF',
+                              schedule: 'YEARLY',
+                              dueDate: '',
+                              endDate: '',
+                              fileUrl: '',
+                              userTypeIds: [],
+                            });
+                          }, 'Document created')
+                        }
+                        className="border border-blue-400 bg-blue-600 px-2 py-2 text-xs font-semibold text-white"
+                      >
+                        Create Document
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      {documents.map((doc) => (
+                        <div key={doc.id} className="flex items-center justify-between border border-slate-200 p-2 text-sm dark:border-slate-700">
+                          <div>
+                            <p className="font-semibold">{doc.title}</p>
+                            <p className="text-xs text-slate-500">{doc.team_name} • {doc.schedule} • {doc.user_types}</p>
+                          </div>
+                          <div className="space-x-2">
+                            <button
+                              onClick={() => {
+                                const title = window.prompt('Document title', doc.title);
+                                if (!title) return;
+                                withAction(
+                                  async () => {
+                                    await apiRequest(`/documents/${doc.id}`, {
+                                      method: 'PUT',
+                                      body: JSON.stringify({ title, actorUserId: activeUser?.id }),
+                                    });
+                                  },
+                                  'Document updated'
+                                );
+                              }}
+                              className="border border-slate-300 px-2 py-1 text-xs"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() =>
+                                withAction(
+                                  async () => {
+                                    await apiRequest(`/documents/${doc.id}`, { method: 'DELETE' });
+                                  },
+                                  'Document deleted'
+                                )
+                              }
+                              className="border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-700"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+              </>
+            ) : loading || !dashboard || !activeUser ? (
               <div className="rounded-[3px] border border-slate-300 bg-[var(--theme-card)] p-6 text-sm">Loading DocRecord...</div>
             ) : (
               <>
@@ -456,10 +1088,7 @@ function App() {
                     ['Overdue', dashboard.summary.overdue],
                     ['Total Docs', dashboard.summary.total_documents],
                   ].map(([label, value]) => (
-                    <div
-                      key={label}
-                      className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-3 dark:border-slate-700"
-                    >
+                    <div key={label} className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-3 dark:border-slate-700">
                       <p className="text-xs uppercase text-slate-500">{label}</p>
                       <p className="font-mono text-2xl font-bold">{value}</p>
                     </div>
@@ -471,9 +1100,7 @@ function App() {
                     <TrendChart trend={dashboard.trend} />
                   </div>
                   <div className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
-                    <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">
-                      Overdue Queue
-                    </h3>
+                    <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">Overdue Queue</h3>
                     <div className="space-y-2 text-sm">
                       {dashboard.overdueList.length ? (
                         dashboard.overdueList.map((item) => (
@@ -483,7 +1110,9 @@ function App() {
                             className="w-full rounded-[3px] border border-red-200 bg-red-50 p-2 text-left hover:bg-red-100"
                           >
                             <p className="font-semibold text-red-900">{item.title}</p>
-                            <p className="text-xs text-red-700">{item.team_name} • {formatDueText(item.due_date)}</p>
+                            <p className="text-xs text-red-700">
+                              {item.team_name} • {formatDueText(item.due_date)}
+                            </p>
                           </button>
                         ))
                       ) : (
@@ -520,9 +1149,7 @@ function App() {
                             <td className="px-3 py-2">{doc.user_types}</td>
                             <td className="px-3 py-2">{formatDueText(doc.due_date)}</td>
                             <td className="px-3 py-2">
-                              <span className={`rounded-[3px] px-2 py-1 text-xs font-semibold ${badgeClass(doc.status)}`}>
-                                {doc.status}
-                              </span>
+                              <span className={`rounded-[3px] px-2 py-1 text-xs font-semibold ${badgeClass(doc.status)}`}>{doc.status}</span>
                             </td>
                           </tr>
                         ))}
@@ -539,9 +1166,7 @@ function App() {
                       >
                         <div className="mb-1 flex items-center justify-between">
                           <p className="font-semibold">{doc.title}</p>
-                          <span className={`rounded-[3px] px-2 py-1 text-xs font-semibold ${badgeClass(doc.status)}`}>
-                            {doc.status}
-                          </span>
+                          <span className={`rounded-[3px] px-2 py-1 text-xs font-semibold ${badgeClass(doc.status)}`}>{doc.status}</span>
                         </div>
                         <p className="text-xs text-slate-600 dark:text-slate-400">{doc.team_name} • {doc.user_types}</p>
                         <p className="mt-2 text-xs text-slate-500">{formatDueText(doc.due_date)}</p>
