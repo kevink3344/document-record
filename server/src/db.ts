@@ -12,10 +12,35 @@ export function getDb(): Database.Database {
     db.pragma('foreign_keys = ON');
     initSchema();
     ensureTeamDescriptionColumn();
-    seedIfEmpty();
+    ensureAcknowledgmentSignatureColumns();
+    ensureAppSettingsDefaults();
+    seedDatabaseAtStartupIfEnabled();
     syncTeamManagersFromLegacy();
   }
   return db;
+}
+
+function readBoolEnv(name: string, fallback: boolean): boolean {
+  const value = process.env[name];
+  if (!value) return fallback;
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function seedDatabaseAtStartupIfEnabled(): void {
+  // Defaults: seed in non-production, skip in production unless explicitly enabled.
+  const shouldSeed = readBoolEnv('DB_SEED_ON_STARTUP', process.env.NODE_ENV !== 'production');
+  if (!shouldSeed) return;
+  seedIfEmpty();
+}
+
+export function seedTestDataIfEmpty(): { seeded: boolean; reason: 'seeded' | 'already-has-data' } {
+  const count = db.prepare('SELECT COUNT(*) AS count FROM teams').get() as { count: number };
+  if (count.count > 0) {
+    return { seeded: false, reason: 'already-has-data' };
+  }
+  seedIfEmpty();
+  return { seeded: true, reason: 'seeded' };
 }
 
 function initSchema(): void {
@@ -117,6 +142,12 @@ function initSchema(): void {
       UNIQUE(team_id, day),
       FOREIGN KEY (team_id) REFERENCES teams(id)
     );
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 
@@ -135,6 +166,33 @@ function syncTeamManagersFromLegacy(): void {
     FROM teams
     WHERE manager_user_id IS NOT NULL;
   `);
+}
+
+function ensureAcknowledgmentSignatureColumns(): void {
+  const columns = db.prepare("PRAGMA table_info('acknowledgments')").all() as Array<{ name: string }>;
+  const hasSignatureData = columns.some((col) => col.name === 'signature_data');
+  const hasSignedName = columns.some((col) => col.name === 'signed_name');
+  const hasSignedAt = columns.some((col) => col.name === 'signed_at');
+
+  if (!hasSignatureData) {
+    db.exec("ALTER TABLE acknowledgments ADD COLUMN signature_data TEXT;");
+  }
+  if (!hasSignedName) {
+    db.exec("ALTER TABLE acknowledgments ADD COLUMN signed_name TEXT;");
+  }
+  if (!hasSignedAt) {
+    db.exec("ALTER TABLE acknowledgments ADD COLUMN signed_at TEXT;");
+  }
+}
+
+function ensureAppSettingsDefaults(): void {
+  const defaultDisclaimer =
+    'By signing this acknowledgment, you confirm that you have read and understood the document and agree to comply with its requirements.';
+
+  db.prepare(
+    `INSERT OR IGNORE INTO app_settings (key, value)
+     VALUES ('acknowledgment_disclaimer', ?)`
+  ).run(defaultDisclaimer);
 }
 
 function seedIfEmpty(): void {

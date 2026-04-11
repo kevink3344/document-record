@@ -48,11 +48,11 @@ export function PdfPreview({ url }: { url?: string }) {
   }, [url]);
 
   return (
-    <div className="rounded-[3px] border border-slate-200 bg-slate-50 p-3">
+    <div className="rounded-[3px] border border-slate-200 bg-slate-50 p-2 sm:p-3">
       {error ? (
-        <p className="text-xs text-slate-600">{error}</p>
+        <p className="text-sm text-slate-600 sm:text-xs">{error}</p>
       ) : (
-        <div className="max-h-72 overflow-auto">
+        <div className="max-h-56 overflow-auto sm:max-h-72">
           <canvas ref={canvasRef} className="w-full rounded-[3px] border border-slate-300" />
         </div>
       )}

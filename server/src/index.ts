@@ -5,7 +5,7 @@ import path from 'path';
 import { execSync } from 'child_process';
 import swaggerUi from 'swagger-ui-express';
 import { load } from 'js-yaml';
-import { getDb } from './db';
+import { getDb, seedTestDataIfEmpty } from './db';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -70,6 +70,61 @@ app.get('/api/version', (_req, res) => {
     commit: resolveCommitHash(),
     node: process.version,
   });
+});
+
+app.get('/api/settings/disclaimer', (_req, res) => {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT value, updated_at FROM app_settings WHERE key = 'acknowledgment_disclaimer'")
+    .get() as { value?: string; updated_at?: string } | undefined;
+
+  res.json({
+    text: row?.value ?? '',
+    updated_at: row?.updated_at ?? null,
+  });
+});
+
+app.put('/api/settings/disclaimer', (req, res) => {
+  const db = getDb();
+  const { text } = req.body as { text?: string };
+  if (typeof text !== 'string') return res.status(400).json({ error: 'text is required' });
+
+  try {
+    db.prepare(
+      `INSERT INTO app_settings (key, value, updated_at)
+       VALUES ('acknowledgment_disclaimer', ?, datetime('now'))
+       ON CONFLICT(key)
+       DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+    ).run(text.trim());
+
+    const updated = db
+      .prepare("SELECT value, updated_at FROM app_settings WHERE key = 'acknowledgment_disclaimer'")
+      .get() as { value: string; updated_at: string };
+
+    res.json({ text: updated.value, updated_at: updated.updated_at });
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.post('/api/settings/seed-data', (req, res) => {
+  const db = getDb();
+  const { actorUserId } = req.body as { actorUserId?: number };
+  if (!actorUserId) return res.status(400).json({ error: 'actorUserId is required' });
+
+  const actor = db
+    .prepare('SELECT id, role FROM users WHERE id = ?')
+    .get(actorUserId) as { id: number; role: string } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor user not found' });
+  if (actor.role !== 'ADMINISTRATOR') {
+    return res.status(403).json({ error: 'Only administrators can seed test data' });
+  }
+
+  const result = seedTestDataIfEmpty();
+  if (!result.seeded) {
+    return res.json({ seeded: false, message: 'Seed skipped: database already contains team data.' });
+  }
+  return res.json({ seeded: true, message: 'Seed completed: test data has been added.' });
 });
 
 app.get('/api/lookups', (_req, res) => {
@@ -649,16 +704,71 @@ app.get('/api/dashboard', (req, res) => {
       .all(user.user_type_id, user.id) as Array<{ id: number; title: string; due_date: string; team_name: string }>;
   }
 
-  const trend = db
-    .prepare(
-      `SELECT t.day, tm.name AS team_name, t.ticket_count
-       FROM ticket_trend t
-       INNER JOIN teams tm ON tm.id = t.team_id
-       ORDER BY t.day ASC, tm.name ASC`
-    )
-    .all();
+  let trend: Array<{ day: string; team_name: string; acknowledgment_count: number }> = [];
+  if (user.role === 'ADMINISTRATOR') {
+    trend = db
+      .prepare(
+        `SELECT date(a.acknowledged_at) AS day,
+                tm.name AS team_name,
+                COUNT(*) AS acknowledgment_count
+         FROM acknowledgments a
+         INNER JOIN documents d ON d.id = a.document_id
+         INNER JOIN teams tm ON tm.id = d.team_id
+         WHERE date(a.acknowledged_at) >= date('now', '-13 days')
+         GROUP BY date(a.acknowledged_at), tm.id, tm.name
+         ORDER BY day ASC, tm.name ASC`
+      )
+      .all() as Array<{ day: string; team_name: string; acknowledgment_count: number }>;
+  } else if (user.role === 'TEAM_MANAGER') {
+    trend = db
+      .prepare(
+        `SELECT date(a.acknowledged_at) AS day,
+                tm.name AS team_name,
+                COUNT(*) AS acknowledgment_count
+         FROM acknowledgments a
+         INNER JOIN documents d ON d.id = a.document_id
+         INNER JOIN teams tm ON tm.id = d.team_id
+         INNER JOIN team_managers tmg ON tmg.team_id = tm.id
+         WHERE tmg.user_id = ?
+           AND date(a.acknowledged_at) >= date('now', '-13 days')
+         GROUP BY date(a.acknowledged_at), tm.id, tm.name
+         ORDER BY day ASC, tm.name ASC`
+      )
+      .all(user.id) as Array<{ day: string; team_name: string; acknowledgment_count: number }>;
+  }
 
-  res.json({ summary, trend, overdueList });
+  let compliance: Array<{ team_name: string; signed: number; total: number }> = [];
+  if (user.role === 'ADMINISTRATOR') {
+    compliance = db
+      .prepare(
+        `SELECT tm.name AS team_name,
+                COUNT(DISTINCT d.id) AS total,
+                COUNT(DISTINCT CASE WHEN a.document_id IS NOT NULL THEN d.id END) AS signed
+         FROM teams tm
+         LEFT JOIN documents d ON d.team_id = tm.id
+         LEFT JOIN acknowledgments a ON a.document_id = d.id
+         GROUP BY tm.id, tm.name
+         ORDER BY tm.name ASC`
+      )
+      .all() as Array<{ team_name: string; signed: number; total: number }>;
+  } else if (user.role === 'TEAM_MANAGER') {
+    compliance = db
+      .prepare(
+        `SELECT tm.name AS team_name,
+                COUNT(DISTINCT d.id) AS total,
+                COUNT(DISTINCT CASE WHEN a.document_id IS NOT NULL THEN d.id END) AS signed
+         FROM teams tm
+         INNER JOIN team_managers tmg ON tmg.team_id = tm.id
+         LEFT JOIN documents d ON d.team_id = tm.id
+         LEFT JOIN acknowledgments a ON a.document_id = d.id
+         WHERE tmg.user_id = ?
+         GROUP BY tm.id, tm.name
+         ORDER BY tm.name ASC`
+      )
+      .all(user.id) as Array<{ team_name: string; signed: number; total: number }>;
+  }
+
+  res.json({ summary, trend, overdueList, compliance });
 });
 
 app.get('/api/documents', (req, res) => {
@@ -789,7 +899,8 @@ app.get('/api/documents/:id', (req, res) => {
 
   const acknowledgments = db
     .prepare(
-      `SELECT a.id, a.acknowledged_at, a.comment, u.full_name, s.name AS school_name, ut.name AS user_type_name
+      `SELECT a.id, a.user_id, a.acknowledged_at, a.comment, a.signature_data, a.signed_name, a.signed_at,
+              u.full_name, s.name AS school_name, ut.name AS user_type_name
        FROM acknowledgments a
        INNER JOIN users u ON u.id = a.user_id
        LEFT JOIN schools s ON s.id = u.school_id
@@ -1003,9 +1114,20 @@ app.delete('/api/document-user-types', (req, res) => {
 app.post('/api/documents/:id/acknowledge', (req, res) => {
   const db = getDb();
   const documentId = Number(req.params.id);
-  const { userId, comment } = req.body as { userId: number; comment?: string };
+  const { userId, comment, signature } = req.body as {
+    userId: number;
+    comment?: string;
+    signature?: {
+      imageDataUrl?: string;
+      signedName?: string;
+      signedAt?: string;
+    };
+  };
 
   if (!userId) return res.status(400).json({ error: 'userId is required' });
+  if (!signature?.imageDataUrl?.trim()) {
+    return res.status(400).json({ error: 'signature.imageDataUrl is required' });
+  }
 
   const exists = db.prepare('SELECT id FROM documents WHERE id = ?').get(documentId);
   if (!exists) return res.status(404).json({ error: 'Document not found' });
@@ -1016,9 +1138,23 @@ app.post('/api/documents/:id/acknowledge', (req, res) => {
   if (already) return res.status(200).json({ message: 'Already acknowledged' });
 
   db.prepare(
-    `INSERT INTO acknowledgments (document_id, user_id, acknowledged, comment)
-     VALUES (?, ?, 1, ?)`
-  ).run(documentId, userId, comment ?? null);
+    `INSERT INTO acknowledgments (
+      document_id,
+      user_id,
+      acknowledged,
+      comment,
+      signature_data,
+      signed_name,
+      signed_at
+    ) VALUES (?, ?, 1, ?, ?, ?, ?)`
+  ).run(
+    documentId,
+    userId,
+    comment ?? null,
+    signature.imageDataUrl.trim(),
+    signature.signedName?.trim() || null,
+    signature.signedAt?.trim() || new Date().toISOString()
+  );
 
   db.prepare(
     'INSERT INTO activity_feed (entity_type, entity_id, message, actor_user_id) VALUES (?, ?, ?, ?)'

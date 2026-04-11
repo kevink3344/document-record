@@ -59,8 +59,9 @@ export type DashboardResponse = {
     assigned: number;
     overdue: number;
   };
-  trend: Array<{ day: string; team_name: string; ticket_count: number }>;
+  trend: Array<{ day: string; team_name: string; acknowledgment_count: number }>;
   overdueList: Array<{ id: number; title: string; due_date: string; team_name: string }>;
+  compliance: Array<{ team_name: string; signed: number; total: number }>;
 };
 
 export type DocumentDetails = {
@@ -68,8 +69,12 @@ export type DocumentDetails = {
   activity: Array<{ id: number; message: string; created_at: string; actor_name: string }>;
   acknowledgments: Array<{
     id: number;
+    user_id: number;
     acknowledged_at: string;
     comment: string;
+    signature_data?: string;
+    signed_name?: string;
+    signed_at?: string;
     full_name: string;
     school_name: string;
     user_type_name: string;
@@ -85,4 +90,4 @@ export type EditPanelState = {
   payload: Record<string, unknown>;
 };
 
-export type DetailTab = 'DETAILS' | 'ACTIVITY';
+export type DetailTab = 'DETAILS' | 'ACTIVITY' | 'SIGNATURES';

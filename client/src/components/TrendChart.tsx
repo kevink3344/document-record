@@ -4,22 +4,22 @@ import type { DashboardResponse } from '../types';
 
 export function TrendChart({ trend }: { trend: DashboardResponse['trend'] }) {
   const teams = useMemo(() => {
-    const grouped = new Map<string, Array<{ day: string; ticket_count: number }>>();
+    const grouped = new Map<string, Array<{ day: string; acknowledgment_count: number }>>();
     trend.forEach((item) => {
       const list = grouped.get(item.team_name) ?? [];
-      list.push({ day: item.day, ticket_count: item.ticket_count });
+      list.push({ day: item.day, acknowledgment_count: item.acknowledgment_count });
       grouped.set(item.team_name, list);
     });
     return [...grouped.entries()].slice(0, 4);
   }, [trend]);
 
-  const maxValue = Math.max(1, ...trend.map((item) => item.ticket_count));
+  const maxValue = Math.max(1, ...trend.map((item) => item.acknowledgment_count));
   const palette = ['#0078d4', '#00a2ae', '#7f56d9', '#ff7a00'];
 
   return (
     <div className="rounded-[3px] border border-slate-200 bg-white p-4">
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Daily Team Ticket Trend</h3>
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Daily Team Acknowledgments</h3>
         <ChartLine size={16} className="text-slate-500" />
       </div>
       <svg viewBox="0 0 640 260" className="h-64 w-full bg-slate-50">
@@ -30,7 +30,7 @@ export function TrendChart({ trend }: { trend: DashboardResponse['trend'] }) {
           const d = points
             .map((point, itemIndex) => {
               const x = 40 + (itemIndex * 580) / Math.max(points.length - 1, 1);
-              const y = 230 - (point.ticket_count / maxValue) * 190;
+              const y = 230 - (point.acknowledgment_count / maxValue) * 190;
               return `${itemIndex === 0 ? 'M' : 'L'} ${x} ${y}`;
             })
             .join(' ');

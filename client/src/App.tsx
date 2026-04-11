@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Bell,
   LayoutPanelLeft,
+  LogOut,
   Moon,
   Search,
   Settings,
@@ -10,8 +11,10 @@ import {
 import { DocumentDetailsPanel } from './components/DocumentDetailsPanel';
 import { EditPanel } from './components/EditPanel';
 import { GreetingCard } from './components/GreetingCard';
+import { ReportsPanel } from './components/ReportsPanel';
 import { SidebarNav } from './components/SidebarNav';
-import { TrendChart } from './components/TrendChart';
+import { SignatureModal } from './components/SignatureModal';
+import { ComplianceChart } from './components/ComplianceChart';
 import { apiRequest } from './lib/api';
 import { badgeClass, formatDueText, normalizeTeam, teamBadgeClass } from './lib/ui';
 import type {
@@ -49,6 +52,11 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activePage, setActivePage] = useState('Dashboard');
   const [notice, setNotice] = useState('');
+  const [disclaimerText, setDisclaimerText] = useState('');
+  const [disclaimerDraft, setDisclaimerDraft] = useState('');
+  const [disclaimerUpdatedAt, setDisclaimerUpdatedAt] = useState<string | null>(null);
+  const [savingDisclaimer, setSavingDisclaimer] = useState(false);
+  const [seedingTestData, setSeedingTestData] = useState(false);
 
   const [lookups, setLookups] = useState<{
     users: LookupUser[];
@@ -56,6 +64,17 @@ function App() {
     userTypes: LookupItem[];
     schools: LookupItem[];
   }>({ users: [], teams: [], userTypes: [], schools: [] });
+  const [lookupsLoading, setLookupsLoading] = useState(true);
+  const [lookupsError, setLookupsError] = useState('');
+  const [authNotice, setAuthNotice] = useState('');
+  const [registering, setRegistering] = useState(false);
+  const [splashSelectedUserId, setSplashSelectedUserId] = useState('');
+  const [registerForm, setRegisterForm] = useState({
+    fullName: '',
+    email: '',
+    schoolId: '',
+    userTypeId: '',
+  });
 
   const [activeUserId, setActiveUserId] = useState<number | null>(null);
   const activeUser = useMemo(
@@ -72,6 +91,10 @@ function App() {
   const [userTypes, setUserTypes] = useState<UserType[]>([]);
   const [schools, setSchools] = useState<School[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [documentUserTypeLinks, setDocumentUserTypeLinks] = useState<
+    Array<{ document_id: number; user_type_id: number }>
+  >([]);
+  const [expandedUserTypeIds, setExpandedUserTypeIds] = useState<number[]>([]);
 
   const [teamForm, setTeamForm] = useState({ name: '', description: '', managerUserIds: [] as number[] });
   const [userTypeForm, setUserTypeForm] = useState({ name: '' });
@@ -122,6 +145,8 @@ function App() {
   const [activeDetailTab, setActiveDetailTab] = useState<DetailTab>('DETAILS');
   const [panelWidth, setPanelWidth] = useState(50);
   const [panelPinned, setPanelPinned] = useState(false);
+  const [signatureModalOpen, setSignatureModalOpen] = useState(false);
+  const [savingSignature, setSavingSignature] = useState(false);
   const [editPanel, setEditPanel] = useState<EditPanelState | null>(null);
 
   const [theme, setTheme] = useState({
@@ -133,17 +158,28 @@ function App() {
   });
 
   const fetchLookups = async () => {
+    setLookupsLoading(true);
+    setLookupsError('');
     const data = await apiRequest<{
       users: LookupUser[];
       teams: LookupItem[];
       userTypes: LookupItem[];
       schools: LookupItem[];
     }>('/lookups');
-    if (!data) return;
-    setLookups(data);
-    if (!activeUserId && data.users.length) {
-      setActiveUserId(data.users[0].id);
+    if (!data) {
+      setLookupsLoading(false);
+      return;
     }
+    setLookups(data);
+    setSplashSelectedUserId((prev) => {
+      if (prev && data.users.some((user) => String(user.id) === prev)) return prev;
+      return data.users.length ? String(data.users[0].id) : '';
+    });
+    setActiveUserId((prev) => {
+      if (prev && data.users.some((user) => user.id === prev)) return prev;
+      return null;
+    });
+    setLookupsLoading(false);
   };
 
   const refreshDashboard = async (userId: number) => {
@@ -159,16 +195,18 @@ function App() {
 
   const refreshAdminData = async () => {
     if (!activeUser || activeUser.role !== 'ADMINISTRATOR') return;
-    const [teamsData, userTypesData, schoolsData, usersData] = await Promise.all([
+    const [teamsData, userTypesData, schoolsData, usersData, documentUserTypeData] = await Promise.all([
       apiRequest<Team[]>('/teams'),
       apiRequest<UserType[]>('/user-types'),
       apiRequest<School[]>('/schools'),
       apiRequest<AdminUser[]>('/users'),
+      apiRequest<Array<{ document_id: number; user_type_id: number }>>('/document-user-types'),
     ]);
     setTeams(((teamsData as unknown as Array<Record<string, unknown>>) ?? []).map(normalizeTeam));
     setUserTypes(userTypesData ?? []);
     setSchools(schoolsData ?? []);
     setUsers(usersData ?? []);
+    setDocumentUserTypeLinks(documentUserTypeData ?? []);
   };
 
   const refreshTeamManagerDocs = async (managerUserId: number) => {
@@ -195,8 +233,22 @@ function App() {
     await refreshAdminData();
   };
 
+  const refreshDisclaimer = async () => {
+    const response = await apiRequest<{ text: string; updated_at: string | null }>('/settings/disclaimer');
+    if (!response) return;
+    setDisclaimerText(response.text ?? '');
+    setDisclaimerDraft(response.text ?? '');
+    setDisclaimerUpdatedAt(response.updated_at ?? null);
+  };
+
   useEffect(() => {
-    fetchLookups().catch(() => setLoading(false));
+    fetchLookups().catch(() => {
+      setLoading(false);
+      setLookupsLoading(false);
+      setLookupsError('Unable to reach the API at http://localhost:3001. Start the server and refresh.');
+      setAuthNotice('Connection failed. Start the backend server to load users and enable registration.');
+    });
+    refreshDisclaimer().catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -282,17 +334,71 @@ function App() {
 
   const handleAcknowledge = async () => {
     if (!selectedDocId || !activeUser) return;
+    setSignatureModalOpen(true);
+  };
+
+  const confirmAcknowledgeWithSignature = async (signature: {
+    imageDataUrl: string;
+    signedName: string;
+    signedAt: string;
+  }) => {
+    if (!selectedDocId || !activeUser) return;
+    setSavingSignature(true);
     try {
       await apiRequest(`/documents/${selectedDocId}/acknowledge`, {
         method: 'POST',
-        body: JSON.stringify({ userId: activeUser.id, comment: 'Acknowledged from DocRecord UI' }),
+        body: JSON.stringify({
+          userId: activeUser.id,
+          comment: 'Acknowledged from DocRecord UI',
+          signature,
+        }),
       });
       await refreshDashboard(activeUser.id);
       const detail = await apiRequest<DocumentDetails>(`/documents/${selectedDocId}`);
       setDocDetails(detail ?? null);
       setNotice('Acknowledgment recorded.');
+      setSignatureModalOpen(false);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Acknowledge failed');
+    } finally {
+      setSavingSignature(false);
+    }
+  };
+
+  const saveDisclaimer = async () => {
+    setSavingDisclaimer(true);
+    try {
+      const response = await apiRequest<{ text: string; updated_at: string | null }>('/settings/disclaimer', {
+        method: 'PUT',
+        body: JSON.stringify({ text: disclaimerDraft }),
+      });
+      if (response) {
+        setDisclaimerText(response.text ?? '');
+        setDisclaimerDraft(response.text ?? '');
+        setDisclaimerUpdatedAt(response.updated_at ?? null);
+      }
+      updateNotice('Disclaimer updated');
+    } catch (error) {
+      updateNotice(error instanceof Error ? error.message : 'Unable to save disclaimer');
+    } finally {
+      setSavingDisclaimer(false);
+    }
+  };
+
+  const seedTestData = async () => {
+    if (!activeUser || activeUser.role !== 'ADMINISTRATOR') return;
+    setSeedingTestData(true);
+    try {
+      const response = await apiRequest<{ seeded: boolean; message: string }>('/settings/seed-data', {
+        method: 'POST',
+        body: JSON.stringify({ actorUserId: activeUser.id }),
+      });
+      await refreshAll();
+      updateNotice(response?.message ?? 'Seed request completed.');
+    } catch (error) {
+      updateNotice(error instanceof Error ? error.message : 'Unable to seed test data');
+    } finally {
+      setSeedingTestData(false);
     }
   };
 
@@ -312,6 +418,7 @@ function App() {
   };
 
   const isAdminPage = activeUser?.role === 'ADMINISTRATOR' && activePage !== 'Dashboard';
+  const isReportsPage = activeUser?.role !== 'USER' && activePage === 'Reports';
   const isMyTeamDocsPage = activeUser?.role === 'TEAM_MANAGER' && activePage === 'My Team Docs';
   const isUserMyDocumentsPage = activeUser?.role === 'USER' && activePage === 'My Documents';
   const isUserHistoryPage = activeUser?.role === 'USER' && activePage === 'History';
@@ -319,6 +426,25 @@ function App() {
     () => documents.filter((doc) => doc.status === 'COMPLETED'),
     [documents]
   );
+  const teamManagerUsers = useMemo(
+    () => users.filter((user) => user.role === 'TEAM_MANAGER'),
+    [users]
+  );
+  const documentsByUserTypeId = useMemo(() => {
+    const docsById = new Map(documents.map((doc) => [doc.id, doc]));
+    const relatedMap = new Map<number, DocumentItem[]>();
+
+    documentUserTypeLinks.forEach((link) => {
+      const doc = docsById.get(link.document_id);
+      if (!doc) return;
+      const existing = relatedMap.get(link.user_type_id) ?? [];
+      if (!existing.some((item) => item.id === doc.id)) {
+        relatedMap.set(link.user_type_id, [...existing, doc]);
+      }
+    });
+
+    return relatedMap;
+  }, [documents, documentUserTypeLinks]);
 
   const openEditPanel = (
     entity: EditEntity,
@@ -427,6 +553,192 @@ function App() {
     setEditPanel((prev) => (prev ? { ...prev, payload: { ...prev.payload, ...patch } } : prev));
   };
 
+  const handleSelectLogin = (userId: number) => {
+    setActiveUserId(userId);
+    setActivePage('Dashboard');
+    setSearch('');
+    setSettingsOpen(false);
+    setSelectedDocId(null);
+    setAuthNotice('');
+  };
+
+  const handleRegister = async () => {
+    if (!registerForm.fullName.trim() || !registerForm.email.trim()) {
+      setAuthNotice('Full name and email are required.');
+      return;
+    }
+    if (!registerForm.schoolId || !registerForm.userTypeId) {
+      setAuthNotice('Please select both school and user type.');
+      return;
+    }
+
+    setRegistering(true);
+    try {
+      const createdUser = await apiRequest<LookupUser>('/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          fullName: registerForm.fullName,
+          email: registerForm.email,
+          schoolId: Number(registerForm.schoolId),
+          userTypeId: Number(registerForm.userTypeId),
+        }),
+      });
+
+      await fetchLookups();
+      if (createdUser?.id) {
+        handleSelectLogin(createdUser.id);
+      }
+
+      setRegisterForm({ fullName: '', email: '', schoolId: '', userTypeId: '' });
+      setAuthNotice('Registration successful. You are now signed in.');
+    } catch (error) {
+      setAuthNotice(error instanceof Error ? error.message : 'Unable to register right now.');
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  if (lookupsLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-sm text-slate-600">
+        Loading DocRecord...
+      </div>
+    );
+  }
+
+  if (!activeUserId || !activeUser) {
+    return (
+      <div className="min-h-screen bg-[radial-gradient(circle_at_top,#e2ebf6_0%,#f1f5f9_38%,#f8fafc_100%)] p-4 md:p-8">
+        <div className="mx-auto grid min-h-[calc(100vh-2rem)] w-full max-w-6xl overflow-hidden rounded-[6px] border border-slate-200 bg-white shadow-xl md:grid-cols-2">
+          <aside className="relative overflow-hidden bg-[linear-gradient(150deg,#002a4d_0%,#004a7c_55%,#0a3558_100%)] p-8 text-white md:p-10">
+            <div className="absolute -right-12 -top-12 h-48 w-48 rounded-full bg-cyan-300/20 blur-2xl" />
+            <div className="absolute -bottom-14 -left-14 h-56 w-56 rounded-full bg-blue-900/40 blur-2xl" />
+            <div className="relative z-10 flex h-full flex-col">
+              <div className="mb-8 inline-flex h-10 w-10 items-center justify-center rounded-[3px] bg-sky-500/80 text-sm font-bold">
+                DR
+              </div>
+              <p className="mb-5 text-xs uppercase tracking-[0.28em] text-slate-200/80">Enterprise Staff Support</p>
+              <h1 className="max-w-sm text-4xl font-bold leading-tight md:text-5xl">Sign in to DocRecord</h1>
+              <p className="mt-6 max-w-md text-base leading-relaxed text-slate-200/90">
+                Choose an existing user profile or register a new account to enter the document workspace.
+              </p>
+              <div className="mt-auto grid gap-3 pt-8 sm:grid-cols-3">
+                <div className="border border-white/15 bg-white/10 p-3">
+                  <p className="font-mono text-3xl font-bold">{lookups.teams.length}</p>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-200/80">Teams</p>
+                </div>
+                <div className="border border-white/15 bg-white/10 p-3">
+                  <p className="font-mono text-3xl font-bold">{lookups.userTypes.length}</p>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-200/80">User Types</p>
+                </div>
+                <div className="border border-white/15 bg-white/10 p-3">
+                  <p className="font-mono text-3xl font-bold">{lookups.users.length}</p>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-200/80">Active Users</p>
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          <section className="bg-slate-50 p-6 md:p-10">
+            <div className="space-y-6">
+              <header>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Authentication</p>
+                <h2 className="mt-2 text-3xl font-bold text-slate-900">Select Existing User</h2>
+                <p className="mt-2 max-w-lg text-sm text-slate-600">
+                  Pick a profile to continue, or create a new user account below.
+                </p>
+              </header>
+
+              {authNotice && (
+                <div className="rounded-[3px] border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                  {authNotice}
+                </div>
+              )}
+
+              <div className="space-y-2 rounded-[3px] border border-slate-200 bg-white p-3">
+                {lookups.users.length ? (
+                  <>
+                    <select
+                      value={splashSelectedUserId}
+                      onChange={(e) => setSplashSelectedUserId(e.target.value)}
+                      className="w-full border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                    >
+                      {lookups.users.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.full_name} ({user.role.replace('_', ' ')})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => handleSelectLogin(Number(splashSelectedUserId))}
+                      disabled={!splashSelectedUserId}
+                      className="w-full border border-slate-900 bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Sign In as Selected User
+                    </button>
+                  </>
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    {lookupsError || 'No users found yet. Register your first account below.'}
+                  </p>
+                )}
+              </div>
+
+              <div className="pt-2">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Register New Account</p>
+                <div className="space-y-2 rounded-[3px] border border-slate-200 bg-white p-3">
+                  <input
+                    value={registerForm.fullName}
+                    onChange={(e) => setRegisterForm((prev) => ({ ...prev, fullName: e.target.value }))}
+                    placeholder="Full name"
+                    className="w-full border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  />
+                  <input
+                    value={registerForm.email}
+                    onChange={(e) => setRegisterForm((prev) => ({ ...prev, email: e.target.value }))}
+                    placeholder="Work email"
+                    className="w-full border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  />
+                  <select
+                    value={registerForm.schoolId}
+                    onChange={(e) => setRegisterForm((prev) => ({ ...prev, schoolId: e.target.value }))}
+                    className="w-full border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  >
+                    <option value="">Select school</option>
+                    {lookups.schools.map((school) => (
+                      <option key={school.id} value={school.id}>
+                        {school.name}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={registerForm.userTypeId}
+                    onChange={(e) => setRegisterForm((prev) => ({ ...prev, userTypeId: e.target.value }))}
+                    className="w-full border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  >
+                    <option value="">Select user type</option>
+                    {lookups.userTypes.map((userType) => (
+                      <option key={userType.id} value={userType.id}>
+                        {userType.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleRegister}
+                    disabled={registering || Boolean(lookupsError)}
+                    className="w-full border border-blue-600 bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {registering ? 'Registering...' : 'Register & Sign In'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[var(--theme-app)] text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <div className="flex min-h-screen">
@@ -457,17 +769,16 @@ function App() {
               </div>
 
               <div className="ml-auto flex items-center gap-2">
-                <select
-                  value={activeUserId ?? ''}
-                  onChange={(e) => setActiveUserId(Number(e.target.value))}
-                  className="rounded-[3px] border border-white/30 bg-white/10 px-2 py-1 text-xs"
+                <div className="hidden rounded-[3px] border border-white/30 bg-white/10 px-2 py-1 text-xs md:block">
+                  {activeUser.full_name} ({activeUser.role})
+                </div>
+                <button
+                  onClick={() => setActiveUserId(null)}
+                  className="rounded-[3px] border border-white/30 p-2 hover:bg-white/15"
+                  title="Switch user"
                 >
-                  {lookups.users.map((user) => (
-                    <option className="text-slate-900" key={user.id} value={user.id}>
-                      {user.full_name} ({user.role})
-                    </option>
-                  ))}
-                </select>
+                  <LogOut size={16} />
+                </button>
                 {activeUser?.role === 'ADMINISTRATOR' && (
                   <button
                     className="rounded-[3px] border border-white/30 p-2 hover:bg-white/15"
@@ -502,28 +813,62 @@ function App() {
             />
 
             {settingsOpen && (
-              <div className="grid grid-cols-2 gap-2 rounded-[3px] border border-slate-300 bg-[var(--theme-card)] p-3 text-xs dark:border-slate-700">
-                {[
-                  ['App', 'app'],
-                  ['Header', 'header'],
-                  ['Menu', 'menu'],
-                  ['Card', 'card'],
-                  ['Button', 'button'],
-                ].map(([label, key]) => (
-                  <label key={key} className="flex items-center gap-2">
-                    <span className="w-16">{label}</span>
-                    <input
-                      type="color"
-                      value={theme[key as keyof typeof theme]}
-                      onChange={(e) => setTheme((prev) => ({ ...prev, [key]: e.target.value }))}
-                      className="h-7 w-14 rounded-[3px] border border-slate-300"
-                    />
-                  </label>
-                ))}
+              <div className="space-y-3 rounded-[3px] border border-slate-300 bg-[var(--theme-card)] p-3 text-xs dark:border-slate-700">
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase text-slate-500">Theme</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      ['App', 'app'],
+                      ['Header', 'header'],
+                      ['Menu', 'menu'],
+                      ['Card', 'card'],
+                      ['Button', 'button'],
+                    ].map(([label, key]) => (
+                      <label key={key} className="flex items-center gap-2">
+                        <span className="w-16">{label}</span>
+                        <input
+                          type="color"
+                          value={theme[key as keyof typeof theme]}
+                          onChange={(e) => setTheme((prev) => ({ ...prev, [key]: e.target.value }))}
+                          className="h-7 w-14 rounded-[3px] border border-slate-300"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
+                  <p className="mb-1 text-xs font-semibold uppercase text-slate-500">Acknowledgment Disclaimer</p>
+                  <p className="mb-2 text-xs text-slate-500">
+                    This text appears in the signature dialog when users acknowledge a document.
+                  </p>
+                  <textarea
+                    value={disclaimerDraft}
+                    onChange={(e) => setDisclaimerDraft(e.target.value)}
+                    rows={4}
+                    className="w-full border border-slate-300 px-2 py-2 text-xs dark:border-slate-700"
+                  />
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <p className="text-[11px] text-slate-500">
+                      {disclaimerUpdatedAt
+                        ? `Last updated ${new Date(disclaimerUpdatedAt).toLocaleString()}`
+                        : 'No disclaimer update recorded yet.'}
+                    </p>
+                    <button
+                      onClick={saveDisclaimer}
+                      disabled={savingDisclaimer || disclaimerDraft === disclaimerText}
+                      className="border border-blue-400 bg-blue-600 px-2 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {savingDisclaimer ? 'Saving...' : 'Save Disclaimer'}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 
-            {isAdminPage ? (
+            {isReportsPage ? (
+              <ReportsPanel activeUser={activeUser} />
+            ) : isAdminPage ? (
               <>
                 {activePage === 'Teams' && (
                   <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
@@ -561,7 +906,7 @@ function App() {
                           }
                           className="h-24 border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
                         >
-                          {users.map((u) => (
+                          {teamManagerUsers.map((u) => (
                             <option key={u.id} value={u.id}>
                               {u.full_name}
                             </option>
@@ -667,33 +1012,68 @@ function App() {
                     )}
                     <div className="space-y-2">
                       {userTypes.map((item) => (
-                        <div key={item.id} className="flex items-center justify-between border border-slate-200 p-2 text-sm dark:border-slate-700">
-                          <span>{item.name}</span>
-                          <div className="space-x-2">
-                            <button
-                              onClick={() =>
-                                openEditPanel('USER_TYPE', item.id, `Edit User Type: ${item.name}`, {
-                                  name: item.name,
-                                })
-                              }
-                              className="border border-slate-300 px-2 py-1 text-xs"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() =>
-                                withAction(
-                                  async () => {
-                                    await apiRequest(`/user-types/${item.id}`, { method: 'DELETE' });
-                                  },
-                                  'User type deleted'
-                                )
-                              }
-                              className="border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-700"
-                            >
-                              Delete
-                            </button>
+                        <div key={item.id} className="border border-slate-200 p-2 text-sm dark:border-slate-700">
+                          <div className="flex items-center justify-between gap-2">
+                            <span>{item.name}</span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() =>
+                                  setExpandedUserTypeIds((prev) =>
+                                    prev.includes(item.id)
+                                      ? prev.filter((id) => id !== item.id)
+                                      : [...prev, item.id]
+                                  )
+                                }
+                                className="border border-slate-300 px-2 py-1 text-xs"
+                              >
+                                {expandedUserTypeIds.includes(item.id) ? 'Hide Docs' : 'Show Docs'} (
+                                {documentsByUserTypeId.get(item.id)?.length ?? 0})
+                              </button>
+                              <button
+                                onClick={() =>
+                                  openEditPanel('USER_TYPE', item.id, `Edit User Type: ${item.name}`, {
+                                    name: item.name,
+                                  })
+                                }
+                                className="border border-slate-300 px-2 py-1 text-xs"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() =>
+                                  withAction(
+                                    async () => {
+                                      await apiRequest(`/user-types/${item.id}`, { method: 'DELETE' });
+                                    },
+                                    'User type deleted'
+                                  )
+                                }
+                                className="border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-700"
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </div>
+
+                          {expandedUserTypeIds.includes(item.id) && (
+                            <div className="mt-2 space-y-2 border-t border-slate-200 pt-2 dark:border-slate-700">
+                              {(documentsByUserTypeId.get(item.id) ?? []).length ? (
+                                (documentsByUserTypeId.get(item.id) ?? []).map((doc) => (
+                                  <div
+                                    key={`${item.id}-${doc.id}`}
+                                    className="rounded-[3px] border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-900"
+                                  >
+                                    <p className="font-semibold">{doc.title}</p>
+                                    <p className="text-xs text-slate-500">
+                                      {doc.team_name} • {doc.schedule} • {doc.user_types}
+                                    </p>
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="text-xs text-slate-500">No related documents for this user type.</p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1076,9 +1456,61 @@ function App() {
                     </div>
                   </section>
                 )}
+
+                {activePage === 'Settings' && (
+                  <section className="space-y-4 rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
+                    <div>
+                      <h3 className="text-sm font-semibold uppercase">Settings</h3>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Admin controls for test deployments and acknowledgment text.
+                      </p>
+                    </div>
+
+                    <div className="rounded-[3px] border border-slate-200 p-3 dark:border-slate-700">
+                      <p className="mb-1 text-xs font-semibold uppercase text-slate-500">Seed Test Data</p>
+                      <p className="mb-2 text-xs text-slate-500">
+                        Runs once only when the database is empty. Safe for new Railway/Azure test environments.
+                      </p>
+                      <button
+                        onClick={seedTestData}
+                        disabled={seedingTestData}
+                        className="border border-blue-400 bg-blue-600 px-2 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {seedingTestData ? 'Seeding...' : 'Seed Test Data'}
+                      </button>
+                    </div>
+
+                    <div className="rounded-[3px] border border-slate-200 p-3 dark:border-slate-700">
+                      <p className="mb-1 text-xs font-semibold uppercase text-slate-500">Acknowledgment Disclaimer</p>
+                      <p className="mb-2 text-xs text-slate-500">
+                        This text appears in the signature dialog when users acknowledge a document.
+                      </p>
+                      <textarea
+                        value={disclaimerDraft}
+                        onChange={(e) => setDisclaimerDraft(e.target.value)}
+                        rows={4}
+                        className="w-full border border-slate-300 px-2 py-2 text-xs dark:border-slate-700"
+                      />
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <p className="text-[11px] text-slate-500">
+                          {disclaimerUpdatedAt
+                            ? `Last updated ${new Date(disclaimerUpdatedAt).toLocaleString()}`
+                            : 'No disclaimer update recorded yet.'}
+                        </p>
+                        <button
+                          onClick={saveDisclaimer}
+                          disabled={savingDisclaimer || disclaimerDraft === disclaimerText}
+                          className="border border-blue-400 bg-blue-600 px-2 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {savingDisclaimer ? 'Saving...' : 'Save Disclaimer'}
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+                )}
               </>
             ) : isUserMyDocumentsPage ? (
-              <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
+              <section className="-mx-4 w-[calc(100%+2rem)] border-y border-slate-200 bg-[var(--theme-card)] p-4 sm:mx-0 sm:w-auto sm:rounded-[3px] sm:border dark:border-slate-700">
                 <h3 className="mb-2 text-sm font-semibold uppercase">My Documents</h3>
                 <p className="mb-3 text-xs text-slate-500">Documents currently assigned to your user type.</p>
                 <div className="space-y-2">
@@ -1087,14 +1519,14 @@ function App() {
                       <button
                         key={doc.id}
                         onClick={() => setSelectedDocId(doc.id)}
-                        className="w-full rounded-[3px] border border-slate-200 bg-white p-3 text-left hover:border-slate-400 dark:border-slate-700 dark:bg-slate-900"
+                        className="w-full rounded-[3px] border border-slate-200 bg-white p-4 text-left hover:border-slate-400 dark:border-slate-700 dark:bg-slate-900"
                       >
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                           <div>
-                            <p className="font-semibold">{doc.title}</p>
-                            <p className="text-xs text-slate-500">{doc.team_name} • {doc.schedule} • {doc.user_types}</p>
+                            <p className="text-sm font-semibold leading-snug sm:text-base">{doc.title}</p>
+                            <p className="mt-1 text-xs text-slate-500">{doc.team_name} • {doc.schedule} • {doc.user_types}</p>
                           </div>
-                          <span className={`rounded-[3px] px-2 py-1 text-xs font-semibold ${badgeClass(doc.status)}`}>
+                          <span className={`inline-flex w-fit rounded-[3px] px-2 py-1 text-xs font-semibold ${badgeClass(doc.status)}`}>
                             {doc.status}
                           </span>
                         </div>
@@ -1320,7 +1752,7 @@ function App() {
                 <section className={`grid grid-cols-1 gap-4 ${activeUser.role !== 'USER' ? 'xl:grid-cols-3' : ''}`}>
                   {activeUser.role !== 'USER' && (
                     <div className="xl:col-span-2">
-                      <TrendChart trend={dashboard.trend} />
+                      <ComplianceChart compliance={dashboard.compliance} trend={dashboard.trend} />
                     </div>
                   )}
                   <div className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
@@ -1387,7 +1819,7 @@ function App() {
 
       <EditPanel
         editPanel={editPanel}
-        users={users}
+        users={teamManagerUsers}
         schools={schools}
         userTypes={userTypes}
         lookupUserTypes={lookups.userTypes}
@@ -1396,18 +1828,32 @@ function App() {
         onClose={() => setEditPanel(null)}
       />
 
-      <DocumentDetailsPanel
+<DocumentDetailsPanel
         docDetails={docDetails}
         isOpen={Boolean(selectedDocId && docDetails)}
         panelWidth={panelWidth}
         panelPinned={panelPinned}
         activeDetailTab={activeDetailTab}
-        canAcknowledge={activeUser?.role === 'USER'}
+        activeUserRole={activeUser?.role ?? null}
+        activeUserId={activeUserId}
+        canAcknowledge={
+          activeUser?.role === 'USER' &&
+          !docDetails?.acknowledgments.some((a) => a.user_id === activeUserId)
+        }
         onTogglePinned={() => setPanelPinned((value) => !value)}
         onClose={() => setSelectedDocId(null)}
         onPanelWidthChange={setPanelWidth}
         onTabChange={setActiveDetailTab}
         onAcknowledge={handleAcknowledge}
+      />
+
+      <SignatureModal
+        isOpen={signatureModalOpen}
+        userName={activeUser?.full_name ?? ''}
+        disclaimerText={disclaimerText}
+        saving={savingSignature}
+        onClose={() => setSignatureModalOpen(false)}
+        onAgree={confirmAcknowledgeWithSignature}
       />
     </div>
   );
