@@ -1288,24 +1288,28 @@ function App() {
               <div className="rounded-[3px] border border-slate-300 bg-[var(--theme-card)] p-6 text-sm">Loading DocRecord...</div>
             ) : (
               <>
-                <section className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                  {[
-                    ['Assigned', dashboard.summary.assigned],
-                    ['Completed', dashboard.summary.completed],
-                    ['Overdue', dashboard.summary.overdue],
-                    ['Total Docs', dashboard.summary.total_documents],
-                  ].map(([label, value]) => (
-                    <div key={label} className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-3 dark:border-slate-700">
-                      <p className="text-xs uppercase text-slate-500">{label}</p>
-                      <p className="font-mono text-2xl font-bold">{value}</p>
-                    </div>
-                  ))}
-                </section>
+                {activeUser.role !== 'USER' && (
+                  <section className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                    {[
+                      ['Assigned', dashboard.summary.assigned],
+                      ['Completed', dashboard.summary.completed],
+                      ['Overdue', dashboard.summary.overdue],
+                      ['Total Docs', dashboard.summary.total_documents],
+                    ].map(([label, value]) => (
+                      <div key={label} className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-3 dark:border-slate-700">
+                        <p className="text-xs uppercase text-slate-500">{label}</p>
+                        <p className="font-mono text-2xl font-bold">{value}</p>
+                      </div>
+                    ))}
+                  </section>
+                )}
 
-                <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-                  <div className="xl:col-span-2">
-                    <TrendChart trend={dashboard.trend} />
-                  </div>
+                <section className={`grid grid-cols-1 gap-4 ${activeUser.role !== 'USER' ? 'xl:grid-cols-3' : ''}`}>
+                  {activeUser.role !== 'USER' && (
+                    <div className="xl:col-span-2">
+                      <TrendChart trend={dashboard.trend} />
+                    </div>
+                  )}
                   <div className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
                     <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-300">Overdue Queue</h3>
                     <div className="space-y-2 text-sm">
