@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {
   Activity,
   BarChart2,
@@ -110,7 +111,7 @@ const API_BASE = 'http://localhost:3001/api';
 const NAVY = '#004a7c';
 const ACCENT = '#0078d4';
 
-GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs';
+GlobalWorkerOptions.workerSrc = pdfWorker;
 
 function badgeClass(status: string): string {
   if (status === 'COMPLETED') return 'bg-emerald-100 text-emerald-900 border border-emerald-300';
