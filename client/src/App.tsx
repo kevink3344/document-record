@@ -266,7 +266,10 @@ function PdfPreview({ url }: { url?: string }) {
 
     (async () => {
       try {
-        const pdf = await getDocument(url).promise;
+        const pdf = await getDocument({
+          url,
+          withCredentials: false,
+        }).promise;
         const page = await pdf.getPage(1);
         const viewport = page.getViewport({ scale: 1.1 });
         const canvas = canvasRef.current;
@@ -276,8 +279,11 @@ function PdfPreview({ url }: { url?: string }) {
         canvas.width = viewport.width;
         canvas.height = viewport.height;
         await page.render({ canvas, canvasContext: context, viewport }).promise;
-      } catch {
-        if (!disposed) setError('Unable to render PDF preview. You can open it externally.');
+      } catch (err) {
+        if (!disposed) {
+          console.error('PDF preview error:', err);
+          setError('Unable to render PDF preview. You can open it externally.');
+        }
       }
     })();
 
