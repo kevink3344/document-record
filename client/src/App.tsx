@@ -281,8 +281,10 @@ function PdfPreview({ url }: { url?: string }) {
         await page.render({ canvas, canvasContext: context, viewport }).promise;
       } catch (err) {
         if (!disposed) {
-          console.error('PDF preview error:', err);
-          setError('Unable to render PDF preview. You can open it externally.');
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          const errorName = err instanceof Error ? err.name : 'Unknown';
+          console.error('[PDF Error]', { name: errorName, message: errorMsg, fullError: err });
+          setError(`Unable to render PDF preview (${errorName}). You can open it externally.`);
         }
       }
     })();
