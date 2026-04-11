@@ -32,10 +32,19 @@ import type {
 
 const NAVY = '#004a7c';
 const ACCENT = '#0078d4';
+const THEME_STORAGE_KEY = 'docrecord-theme-mode';
+
+const getInitialDarkMode = () => {
+  if (typeof window === 'undefined') return false;
+  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+  if (stored === 'dark') return true;
+  if (stored === 'light') return false;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
+};
 
 function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(getInitialDarkMode);
   const [search, setSearch] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activePage, setActivePage] = useState('Dashboard');
@@ -210,11 +219,15 @@ function App() {
     const root = document.documentElement;
     root.classList.toggle('dark', darkMode);
     root.style.setProperty('--theme-app', theme.app);
-    root.style.setProperty('--theme-header', theme.header);
+    root.style.setProperty('--theme-header', darkMode ? '#0b1220' : theme.header);
     root.style.setProperty('--theme-menu', theme.menu);
-    root.style.setProperty('--theme-card', theme.card);
+    root.style.setProperty('--theme-card', darkMode ? '#0b1220' : theme.card);
     root.style.setProperty('--theme-button', theme.button);
   }, [theme, darkMode]);
+
+  useEffect(() => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, darkMode ? 'dark' : 'light');
+  }, [darkMode]);
 
   useEffect(() => {
     if (!selectedDocId) {
