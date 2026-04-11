@@ -626,6 +626,7 @@ function App() {
     openEditPanel('DOCUMENT', doc.id, title, {
       title: doc.title,
       description: doc.description ?? '',
+      fileUrl: doc.file_url ?? '',
       dueDate: doc.due_date.slice(0, 10),
       schedule: doc.schedule,
       userTypeIds,
@@ -688,6 +689,7 @@ function App() {
           body: JSON.stringify({
             title: payload.title,
             description: payload.description,
+            fileUrl: payload.fileUrl,
             dueDate: payload.dueDate,
             schedule: payload.schedule,
             userTypeIds,
@@ -1922,6 +1924,19 @@ function App() {
                         }
                         className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
                         rows={3}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs uppercase text-slate-500">Document URL</span>
+                      <input
+                        value={payloadString('fileUrl')}
+                        onChange={(e) =>
+                          setEditPanel((prev) =>
+                            prev ? { ...prev, payload: { ...prev.payload, fileUrl: e.target.value } } : prev
+                          )
+                        }
+                        className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                        placeholder="https://..."
                       />
                     </label>
                     <div className="grid grid-cols-2 gap-2">
