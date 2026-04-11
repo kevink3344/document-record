@@ -1,9 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { UserSignature } from '../types';
 
 type SignatureModalProps = {
   isOpen: boolean;
   userName: string;
   disclaimerText: string;
+  savedSignatures: UserSignature[];
+  loadingSavedSignatures: boolean;
   saving: boolean;
   onClose: () => void;
   onAgree: (payload: { imageDataUrl: string; signedName: string; signedAt: string }) => void;
@@ -13,19 +16,40 @@ export function SignatureModal({
   isOpen,
   userName,
   disclaimerText,
+  savedSignatures,
+  loadingSavedSignatures,
   saving,
   onClose,
   onAgree,
 }: SignatureModalProps) {
+  const [mode, setMode] = useState<'SAVED' | 'DRAW'>('DRAW');
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
   const [hasSignature, setHasSignature] = useState(false);
   const [signedName, setSignedName] = useState(userName);
+  const [selectedSavedSignatureId, setSelectedSavedSignatureId] = useState<number | null>(null);
+
+  const sortedSavedSignatures = useMemo(() => {
+    return [...savedSignatures].sort((left, right) => {
+      if (left.is_default !== right.is_default) return right.is_default - left.is_default;
+      return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
+    });
+  }, [savedSignatures]);
 
   useEffect(() => {
     if (!isOpen) return;
     setSignedName(userName);
     setHasSignature(false);
+    if (sortedSavedSignatures.length) {
+      const preferred = sortedSavedSignatures.find((item) => item.is_default === 1) ?? sortedSavedSignatures[0];
+      setMode('SAVED');
+      setSelectedSavedSignatureId(preferred.id);
+    } else {
+      setMode('DRAW');
+      setSelectedSavedSignatureId(null);
+    }
+
+    if (sortedSavedSignatures.length && mode !== 'DRAW') return;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -45,7 +69,7 @@ export function SignatureModal({
     ctx.lineWidth = 2;
     ctx.lineCap = 'round';
     ctx.strokeStyle = '#0f172a';
-  }, [isOpen, userName]);
+  }, [isOpen, userName, sortedSavedSignatures]);
 
   const getCanvasCoordinates = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -101,8 +125,21 @@ export function SignatureModal({
   };
 
   const handleAgree = () => {
+    if (!signedName.trim()) return;
+
+    if (mode === 'SAVED') {
+      const selected = sortedSavedSignatures.find((item) => item.id === selectedSavedSignatureId);
+      if (!selected) return;
+      onAgree({
+        imageDataUrl: selected.signature_data,
+        signedName: signedName.trim(),
+        signedAt: new Date().toISOString(),
+      });
+      return;
+    }
+
     const canvas = canvasRef.current;
-    if (!canvas || !hasSignature || !signedName.trim()) return;
+    if (!canvas || !hasSignature) return;
 
     onAgree({
       imageDataUrl: canvas.toDataURL('image/png'),
@@ -126,6 +163,21 @@ export function SignatureModal({
             'By signing this acknowledgment, you confirm that you have read and understood the document and agree to comply with its requirements.'}
         </div>
 
+        <div className="mt-3 flex gap-5 border-b border-slate-200 text-sm dark:border-slate-700">
+          {[
+            { id: 'SAVED' as const, label: `Saved (${savedSignatures.length})` },
+            { id: 'DRAW' as const, label: 'Draw Signature' },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setMode(tab.id)}
+              className={`border-b-2 px-1 py-2 ${mode === tab.id ? 'border-[var(--theme-button)] text-[var(--theme-button)]' : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'}`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
         <div className="mt-3">
           <label className="mb-1 block text-xs uppercase text-slate-500">Signed Name</label>
           <input
@@ -136,26 +188,61 @@ export function SignatureModal({
           />
         </div>
 
-        <div className="mt-3">
-          <label className="mb-1 block text-xs uppercase text-slate-500">Draw Signature</label>
-          <canvas
-            ref={canvasRef}
-            className="h-52 w-full touch-none rounded-[3px] border border-slate-300 bg-white dark:border-slate-700"
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={stopDrawing}
-            onPointerLeave={stopDrawing}
-            onPointerCancel={stopDrawing}
-          />
-        </div>
+        {mode === 'SAVED' ? (
+          <div className="mt-3 space-y-2">
+            {loadingSavedSignatures ? (
+              <p className="text-xs text-slate-500">Loading saved signatures...</p>
+            ) : sortedSavedSignatures.length ? (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {sortedSavedSignatures.map((signature) => (
+                  <button
+                    key={signature.id}
+                    type="button"
+                    onClick={() => setSelectedSavedSignatureId(signature.id)}
+                    className={`rounded-[3px] border p-2 text-left ${selectedSavedSignatureId === signature.id ? 'border-blue-400 bg-blue-50 dark:bg-blue-950/40' : 'border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900'}`}
+                  >
+                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                      {signature.name}
+                      {signature.is_default ? (
+                        <span className="ml-2 rounded-[3px] border border-blue-300 bg-blue-50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-blue-700">
+                          Default
+                        </span>
+                      ) : null}
+                    </p>
+                    <img src={signature.signature_data} alt={signature.name} className="mt-2 max-h-20 w-full rounded-[3px] border border-slate-200 bg-white p-1 dark:border-slate-700" />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500">
+                No saved signatures found. Switch to "Draw Signature" to continue.
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="mt-3">
+            <label className="mb-1 block text-xs uppercase text-slate-500">Draw Signature</label>
+            <canvas
+              ref={canvasRef}
+              className="h-52 w-full touch-none rounded-[3px] border border-slate-300 bg-white dark:border-slate-700"
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={stopDrawing}
+              onPointerLeave={stopDrawing}
+              onPointerCancel={stopDrawing}
+            />
+          </div>
+        )}
 
         <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
-          <button
-            onClick={clearSignature}
-            className="rounded-[3px] border border-slate-300 px-3 py-2 text-xs hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800"
-          >
-            Clear Signature
-          </button>
+          {mode === 'DRAW' && (
+            <button
+              onClick={clearSignature}
+              className="rounded-[3px] border border-slate-300 px-3 py-2 text-xs hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800"
+            >
+              Clear Signature
+            </button>
+          )}
           <button
             onClick={onClose}
             className="rounded-[3px] border border-slate-300 px-3 py-2 text-xs hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800"
@@ -164,7 +251,11 @@ export function SignatureModal({
           </button>
           <button
             onClick={handleAgree}
-            disabled={!hasSignature || !signedName.trim() || saving}
+            disabled={
+              !signedName.trim() ||
+              saving ||
+              (mode === 'DRAW' ? !hasSignature : !selectedSavedSignatureId)
+            }
             className="rounded-[3px] border border-blue-500 bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? 'Saving...' : 'I Agree'}

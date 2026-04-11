@@ -81,6 +81,16 @@ export type DocumentDetails = {
   }>;
 };
 
+export type UserSignature = {
+  id: number;
+  user_id: number;
+  name: string;
+  signature_data: string;
+  is_default: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type EditEntity = 'TEAM' | 'USER_TYPE' | 'SCHOOL' | 'USER' | 'DOCUMENT';
 
 export type EditPanelState = {

@@ -12,6 +12,7 @@ import {
   LayoutGrid,
   Settings,
   Shield,
+  Signature,
   Tag,
   User,
   Users,
@@ -37,6 +38,7 @@ const navIconMap: Record<string, ReactNode> = {
   'My Documents': <File size={15} />,
   Activity: <Activity size={15} />,
   History: <Clock size={15} />,
+  Signatures: <Signature size={15} />,
   'School Buildings': <Building2 size={15} />,
 };
 

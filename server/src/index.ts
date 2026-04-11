@@ -127,6 +127,160 @@ app.post('/api/settings/seed-data', (req, res) => {
   return res.json({ seeded: true, message: 'Seed completed: test data has been added.' });
 });
 
+app.get('/api/signatures', (req, res) => {
+  const db = getDb();
+  const userId = req.query.userId ? toId(String(req.query.userId)) : 0;
+  const actorUserId = req.query.actorUserId ? toId(String(req.query.actorUserId)) : 0;
+
+  if (!userId || !actorUserId) {
+    return res.status(400).json({ error: 'userId and actorUserId are required' });
+  }
+
+  const actor = db
+    .prepare('SELECT id, role FROM users WHERE id = ?')
+    .get(actorUserId) as { id: number; role: string } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor user not found' });
+  if (actor.role !== 'ADMINISTRATOR' && actor.id !== userId) {
+    return res.status(403).json({ error: 'Not authorized to view these signatures' });
+  }
+
+  const rows = db
+    .prepare(
+      `SELECT id, user_id, name, signature_data, is_default, created_at, updated_at
+       FROM user_signatures
+       WHERE user_id = ?
+       ORDER BY is_default DESC, updated_at DESC, id DESC`
+    )
+    .all(userId);
+
+  res.json(rows);
+});
+
+app.post('/api/signatures', (req, res) => {
+  const db = getDb();
+  const { actorUserId, userId, name, signatureData } = req.body as {
+    actorUserId?: number;
+    userId?: number;
+    name?: string;
+    signatureData?: string;
+  };
+
+  if (!actorUserId || !userId) {
+    return res.status(400).json({ error: 'actorUserId and userId are required' });
+  }
+  if (!name?.trim()) {
+    return res.status(400).json({ error: 'name is required' });
+  }
+  if (!signatureData?.trim()) {
+    return res.status(400).json({ error: 'signatureData is required' });
+  }
+
+  const actor = db
+    .prepare('SELECT id, role FROM users WHERE id = ?')
+    .get(actorUserId) as { id: number; role: string } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor user not found' });
+  if (actor.role !== 'ADMINISTRATOR' && actor.id !== userId) {
+    return res.status(403).json({ error: 'Not authorized to create signatures for this user' });
+  }
+
+  try {
+    const existingCount = db
+      .prepare('SELECT COUNT(*) AS count FROM user_signatures WHERE user_id = ?')
+      .get(userId) as { count: number };
+    const isDefault = existingCount.count === 0 ? 1 : 0;
+
+    const result = db
+      .prepare(
+        `INSERT INTO user_signatures (user_id, name, signature_data, is_default, updated_at)
+         VALUES (?, ?, ?, ?, datetime('now'))`
+      )
+      .run(userId, name.trim(), signatureData.trim(), isDefault);
+
+    const created = db
+      .prepare(
+        `SELECT id, user_id, name, signature_data, is_default, created_at, updated_at
+         FROM user_signatures
+         WHERE id = ?`
+      )
+      .get(result.lastInsertRowid);
+
+    res.status(201).json(created);
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.delete('/api/signatures/:id', (req, res) => {
+  const db = getDb();
+  const signatureId = toId(req.params.id);
+  const { actorUserId } = req.body as { actorUserId?: number };
+  if (!actorUserId) return res.status(400).json({ error: 'actorUserId is required' });
+
+  const actor = db
+    .prepare('SELECT id, role FROM users WHERE id = ?')
+    .get(actorUserId) as { id: number; role: string } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor user not found' });
+
+  const signature = db
+    .prepare('SELECT id, user_id FROM user_signatures WHERE id = ?')
+    .get(signatureId) as { id: number; user_id: number } | undefined;
+  if (!signature) return res.status(404).json({ error: 'Signature not found' });
+
+  if (actor.role !== 'ADMINISTRATOR' && actor.id !== signature.user_id) {
+    return res.status(403).json({ error: 'Not authorized to delete this signature' });
+  }
+
+  db.prepare('DELETE FROM user_signatures WHERE id = ?').run(signatureId);
+
+  const remaining = db
+    .prepare('SELECT id FROM user_signatures WHERE user_id = ? ORDER BY updated_at DESC, id DESC LIMIT 1')
+    .get(signature.user_id) as { id: number } | undefined;
+  if (remaining) {
+    db.prepare('UPDATE user_signatures SET is_default = CASE WHEN id = ? THEN 1 ELSE 0 END WHERE user_id = ?').run(
+      remaining.id,
+      signature.user_id
+    );
+  }
+
+  res.status(204).send();
+});
+
+app.put('/api/signatures/:id/default', (req, res) => {
+  const db = getDb();
+  const signatureId = toId(req.params.id);
+  const { actorUserId } = req.body as { actorUserId?: number };
+  if (!actorUserId) return res.status(400).json({ error: 'actorUserId is required' });
+
+  const actor = db
+    .prepare('SELECT id, role FROM users WHERE id = ?')
+    .get(actorUserId) as { id: number; role: string } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor user not found' });
+
+  const signature = db
+    .prepare('SELECT id, user_id FROM user_signatures WHERE id = ?')
+    .get(signatureId) as { id: number; user_id: number } | undefined;
+  if (!signature) return res.status(404).json({ error: 'Signature not found' });
+
+  if (actor.role !== 'ADMINISTRATOR' && actor.id !== signature.user_id) {
+    return res.status(403).json({ error: 'Not authorized to update this signature' });
+  }
+
+  db.prepare('UPDATE user_signatures SET is_default = CASE WHEN id = ? THEN 1 ELSE 0 END WHERE user_id = ?').run(
+    signature.id,
+    signature.user_id
+  );
+
+  const updated = db
+    .prepare(
+      `SELECT id, user_id, name, signature_data, is_default, created_at, updated_at
+       FROM user_signatures
+       WHERE id = ?`
+    )
+    .get(signature.id);
+
+  res.json(updated);
+});
+
 app.get('/api/lookups', (_req, res) => {
   const db = getDb();
   const teams = db

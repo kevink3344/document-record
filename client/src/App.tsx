@@ -14,6 +14,7 @@ import { GreetingCard } from './components/GreetingCard';
 import { ReportsPanel } from './components/ReportsPanel';
 import { SidebarNav } from './components/SidebarNav';
 import { SignatureModal } from './components/SignatureModal';
+import { UserSignaturesPanel } from './components/UserSignaturesPanel';
 import { ComplianceChart } from './components/ComplianceChart';
 import { apiRequest } from './lib/api';
 import { badgeClass, formatDueText, normalizeTeam, teamBadgeClass } from './lib/ui';
@@ -30,6 +31,7 @@ import type {
   Role,
   School,
   Team,
+  UserSignature,
   UserType,
 } from './types';
 
@@ -147,6 +149,11 @@ function App() {
   const [panelPinned, setPanelPinned] = useState(false);
   const [signatureModalOpen, setSignatureModalOpen] = useState(false);
   const [savingSignature, setSavingSignature] = useState(false);
+  const [userSignatures, setUserSignatures] = useState<UserSignature[]>([]);
+  const [loadingUserSignatures, setLoadingUserSignatures] = useState(false);
+  const [savingUserSignature, setSavingUserSignature] = useState(false);
+  const [deletingUserSignatureId, setDeletingUserSignatureId] = useState<number | null>(null);
+  const [settingDefaultUserSignatureId, setSettingDefaultUserSignatureId] = useState<number | null>(null);
   const [editPanel, setEditPanel] = useState<EditPanelState | null>(null);
 
   const [theme, setTheme] = useState({
@@ -241,6 +248,16 @@ function App() {
     setDisclaimerUpdatedAt(response.updated_at ?? null);
   };
 
+  const refreshUserSignatures = async (userId: number) => {
+    setLoadingUserSignatures(true);
+    try {
+      const data = await apiRequest<UserSignature[]>(`/signatures?userId=${userId}&actorUserId=${userId}`);
+      setUserSignatures(data ?? []);
+    } finally {
+      setLoadingUserSignatures(false);
+    }
+  };
+
   useEffect(() => {
     fetchLookups().catch(() => {
       setLoading(false);
@@ -256,6 +273,14 @@ function App() {
       refreshDashboard(activeUserId).catch(() => setLoading(false));
     }
   }, [activeUserId]);
+
+  useEffect(() => {
+    if (activeUser?.role === 'USER') {
+      refreshUserSignatures(activeUser.id).catch(() => undefined);
+      return;
+    }
+    setUserSignatures([]);
+  }, [activeUser?.id, activeUser?.role]);
 
   useEffect(() => {
     refreshAdminData().catch(() => undefined);
@@ -307,7 +332,7 @@ function App() {
       return ['Dashboard', 'Teams', 'Users', 'User Types', 'Schools', 'Documents', 'Reports', 'Settings'];
     }
     if (activeUser.role === 'TEAM_MANAGER') return ['Dashboard', 'My Team Docs', 'Activity', 'Reports'];
-    return ['Dashboard', 'My Documents', 'History'];
+    return ['Dashboard', 'My Documents', 'History', 'Signatures'];
   }, [activeUser]);
   const greetingName = useMemo(() => {
     if (!activeUser?.full_name) return 'there';
@@ -402,6 +427,62 @@ function App() {
     }
   };
 
+  const createUserSignature = async (payload: { name: string; imageDataUrl: string }) => {
+    if (!activeUser || activeUser.role !== 'USER') return;
+    setSavingUserSignature(true);
+    try {
+      await apiRequest('/signatures', {
+        method: 'POST',
+        body: JSON.stringify({
+          actorUserId: activeUser.id,
+          userId: activeUser.id,
+          name: payload.name,
+          signatureData: payload.imageDataUrl,
+        }),
+      });
+      await refreshUserSignatures(activeUser.id);
+      updateNotice('Signature saved');
+    } catch (error) {
+      updateNotice(error instanceof Error ? error.message : 'Unable to save signature');
+    } finally {
+      setSavingUserSignature(false);
+    }
+  };
+
+  const deleteUserSignature = async (signatureId: number) => {
+    if (!activeUser || activeUser.role !== 'USER') return;
+    setDeletingUserSignatureId(signatureId);
+    try {
+      await apiRequest(`/signatures/${signatureId}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ actorUserId: activeUser.id }),
+      });
+      await refreshUserSignatures(activeUser.id);
+      updateNotice('Signature deleted');
+    } catch (error) {
+      updateNotice(error instanceof Error ? error.message : 'Unable to delete signature');
+    } finally {
+      setDeletingUserSignatureId(null);
+    }
+  };
+
+  const setDefaultUserSignature = async (signatureId: number) => {
+    if (!activeUser || activeUser.role !== 'USER') return;
+    setSettingDefaultUserSignatureId(signatureId);
+    try {
+      await apiRequest(`/signatures/${signatureId}/default`, {
+        method: 'PUT',
+        body: JSON.stringify({ actorUserId: activeUser.id }),
+      });
+      await refreshUserSignatures(activeUser.id);
+      updateNotice('Default signature updated');
+    } catch (error) {
+      updateNotice(error instanceof Error ? error.message : 'Unable to set default signature');
+    } finally {
+      setSettingDefaultUserSignatureId(null);
+    }
+  };
+
   const updateNotice = (msg: string) => {
     setNotice(msg);
     window.setTimeout(() => setNotice(''), 2500);
@@ -422,6 +503,7 @@ function App() {
   const isMyTeamDocsPage = activeUser?.role === 'TEAM_MANAGER' && activePage === 'My Team Docs';
   const isUserMyDocumentsPage = activeUser?.role === 'USER' && activePage === 'My Documents';
   const isUserHistoryPage = activeUser?.role === 'USER' && activePage === 'History';
+  const isUserSignaturesPage = activeUser?.role === 'USER' && activePage === 'Signatures';
   const myCompletedDocuments = useMemo(
     () => documents.filter((doc) => doc.status === 'COMPLETED'),
     [documents]
@@ -1559,6 +1641,17 @@ function App() {
                   )}
                 </div>
               </section>
+            ) : isUserSignaturesPage ? (
+              <UserSignaturesPanel
+                signatures={userSignatures}
+                loading={loadingUserSignatures}
+                saving={savingUserSignature}
+                deletingSignatureId={deletingUserSignatureId}
+                settingDefaultSignatureId={settingDefaultUserSignatureId}
+                onCreate={createUserSignature}
+                onDelete={deleteUserSignature}
+                onSetDefault={setDefaultUserSignature}
+              />
             ) : isMyTeamDocsPage ? (
               <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
                 <div className="mb-3 flex items-center justify-between">
@@ -1851,6 +1944,8 @@ function App() {
         isOpen={signatureModalOpen}
         userName={activeUser?.full_name ?? ''}
         disclaimerText={disclaimerText}
+        savedSignatures={userSignatures}
+        loadingSavedSignatures={loadingUserSignatures}
         saving={savingSignature}
         onClose={() => setSignatureModalOpen(false)}
         onAgree={confirmAcknowledgeWithSignature}

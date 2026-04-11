@@ -13,6 +13,7 @@ export function getDb(): Database.Database {
     initSchema();
     ensureTeamDescriptionColumn();
     ensureAcknowledgmentSignatureColumns();
+    ensureUserSignatureColumns();
     ensureAppSettingsDefaults();
     seedDatabaseAtStartupIfEnabled();
     syncTeamManagersFromLegacy();
@@ -148,6 +149,18 @@ function initSchema(): void {
       value TEXT NOT NULL,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS user_signatures (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      signature_data TEXT NOT NULL,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(user_id, name),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `);
 }
 
@@ -193,6 +206,15 @@ function ensureAppSettingsDefaults(): void {
     `INSERT OR IGNORE INTO app_settings (key, value)
      VALUES ('acknowledgment_disclaimer', ?)`
   ).run(defaultDisclaimer);
+}
+
+function ensureUserSignatureColumns(): void {
+  const columns = db.prepare("PRAGMA table_info('user_signatures')").all() as Array<{ name: string }>;
+  const hasIsDefault = columns.some((col) => col.name === 'is_default');
+
+  if (!hasIsDefault) {
+    db.exec("ALTER TABLE user_signatures ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;");
+  }
 }
 
 function seedIfEmpty(): void {
