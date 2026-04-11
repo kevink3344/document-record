@@ -10,6 +10,7 @@ type GreetingCardProps = {
 
 export function GreetingCard({ activeUser, greetingName, greetingUserType, activeTeamNames }: GreetingCardProps) {
   if (!activeUser) return null;
+  const showUserType = Boolean(greetingUserType.trim());
 
   return (
     <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
@@ -18,9 +19,11 @@ export function GreetingCard({ activeUser, greetingName, greetingUserType, activ
         <span className={`rounded-[3px] px-2 py-0.5 text-xs font-semibold ${roleBadgeClass(activeUser.role)}`}>
           {activeUser.role}
         </span>
-        <span className={`rounded-[3px] px-2 py-0.5 text-xs font-semibold ${userTypeBadgeClass(greetingUserType)}`}>
-          {greetingUserType}
-        </span>
+        {showUserType && (
+          <span className={`rounded-[3px] px-2 py-0.5 text-xs font-semibold ${userTypeBadgeClass(greetingUserType)}`}>
+            {greetingUserType}
+          </span>
+        )}
       </p>
       <p className="mt-1 text-xs text-slate-500">
         {activeTeamNames.length ? activeTeamNames.join(' • ') : 'No teams assigned'}

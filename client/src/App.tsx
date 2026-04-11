@@ -250,8 +250,8 @@ function App() {
   }, [activeUser?.full_name]);
 
   const greetingUserType = useMemo(() => {
-    return activeUser?.user_type_name || activeUser?.role || 'USER';
-  }, [activeUser?.user_type_name, activeUser?.role]);
+    return (activeUser?.user_type_name ?? '').trim();
+  }, [activeUser?.user_type_name]);
 
   const activeTeamNames = useMemo(() => {
     if (!activeUser) return [] as string[];
