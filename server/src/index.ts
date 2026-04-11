@@ -424,6 +424,8 @@ app.put('/api/users/:id', (req, res) => {
     userTypeId?: number | null;
     isActive?: number;
   };
+  const hasSchoolId = Object.prototype.hasOwnProperty.call(req.body, 'schoolId');
+  const hasUserTypeId = Object.prototype.hasOwnProperty.call(req.body, 'userTypeId');
   const existing = db.prepare('SELECT id FROM users WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'User not found' });
   try {
@@ -432,15 +434,17 @@ app.put('/api/users/:id', (req, res) => {
        SET full_name = COALESCE(?, full_name),
            email = COALESCE(?, email),
            role = COALESCE(?, role),
-           school_id = COALESCE(?, school_id),
-           user_type_id = COALESCE(?, user_type_id),
+           school_id = CASE WHEN ? THEN ? ELSE school_id END,
+           user_type_id = CASE WHEN ? THEN ? ELSE user_type_id END,
            is_active = COALESCE(?, is_active)
        WHERE id = ?`
     ).run(
       fullName?.trim() ?? null,
       email?.trim().toLowerCase() ?? null,
       role ?? null,
+      hasSchoolId ? 1 : 0,
       schoolId ?? null,
+      hasUserTypeId ? 1 : 0,
       userTypeId ?? null,
       isActive ?? null,
       id
