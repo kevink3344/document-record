@@ -28,6 +28,7 @@ jobs:
           VITE_API_BASE_URL: /api
         run: |
           npm install
+          npm install --workspace client --no-save @rolldown/binding-linux-x64-gnu@1.0.0-rc.15
           npm run build --if-present
           npm run test --if-present
 
