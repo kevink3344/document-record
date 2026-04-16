@@ -1606,7 +1606,10 @@ app.listen(PORT, () => {
 // SPA fallback — must be last, after all API routes
 if (process.env.NODE_ENV === 'production') {
   const clientDist = path.join(__dirname, '../../client/dist');
-  app.use((_req, res) => {
+  app.use((req, res, next) => {
+    if (req.method !== 'GET') return next();
+    if (req.path.startsWith('/api')) return next();
+    if (path.extname(req.path)) return next();
     res.sendFile(path.join(clientDist, 'index.html'));
   });
 }
