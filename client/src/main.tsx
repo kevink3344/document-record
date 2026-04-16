@@ -2,9 +2,23 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { AppErrorBoundary } from './components/AppErrorBoundary.tsx'
 
-const themeMode = window.localStorage.getItem('docrecord-theme-mode')
-const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+let themeMode: string | null = null
+let prefersDark = false
+
+try {
+  themeMode = window.localStorage.getItem('docrecord-theme-mode')
+} catch {
+  themeMode = null
+}
+
+try {
+  prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+} catch {
+  prefersDark = false
+}
+
 if (themeMode === 'dark' || (!themeMode && prefersDark)) {
   document.documentElement.classList.add('dark')
 } else {
@@ -13,6 +27,8 @@ if (themeMode === 'dark' || (!themeMode && prefersDark)) {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <AppErrorBoundary>
+      <App />
+    </AppErrorBoundary>
   </StrictMode>,
 )
