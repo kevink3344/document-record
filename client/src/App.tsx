@@ -628,6 +628,17 @@ function App() {
       await submit();
       if (activeUser?.role === 'TEAM_MANAGER') {
         await refreshTeamManagerDocs(activeUser.id);
+        await refreshDashboard(activeUser.id);
+      }
+      if (activeUser?.role === 'ADMINISTRATOR') {
+        await Promise.all([
+          fetchLookups(),
+          refreshAdminData(),
+          activeUserId ? refreshDashboard(activeUserId) : Promise.resolve(),
+        ]);
+      }
+      if (activeUser?.role === 'USER' && activeUserId) {
+        await refreshDashboard(activeUserId);
       }
     }, 'Entity updated');
 

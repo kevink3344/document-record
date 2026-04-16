@@ -28,6 +28,20 @@ export function PdfPreview({ url }: { url?: string }) {
   const isPdf = normalizedUrl.toLowerCase().includes('.pdf');
   const googleDocPreviewUrl = normalizedUrl ? getGoogleDocPreviewUrl(normalizedUrl) : null;
   const isGoogleDoc = Boolean(googleDocPreviewUrl);
+  const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:3001/api';
+
+  const pdfUrlForPreview = (() => {
+    if (!normalizedUrl) return '';
+    try {
+      const parsed = new URL(normalizedUrl);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        return `${apiBase}/pdf-proxy?url=${encodeURIComponent(parsed.toString())}`;
+      }
+    } catch {
+      // Keep original URL for relative/local paths.
+    }
+    return normalizedUrl;
+  })();
 
   useEffect(() => {
     if (!normalizedUrl) {
@@ -46,7 +60,7 @@ export function PdfPreview({ url }: { url?: string }) {
     (async () => {
       try {
         const pdf = await getDocument({
-          url: normalizedUrl,
+          url: pdfUrlForPreview,
           withCredentials: false,
         }).promise;
         const page = await pdf.getPage(1);
@@ -71,7 +85,7 @@ export function PdfPreview({ url }: { url?: string }) {
     return () => {
       disposed = true;
     };
-  }, [isPdf, normalizedUrl]);
+  }, [apiBase, isPdf, normalizedUrl, pdfUrlForPreview]);
 
   return (
     <div className="rounded-[3px] border border-slate-200 bg-slate-50 p-2 sm:p-3">

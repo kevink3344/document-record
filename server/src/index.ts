@@ -36,6 +36,37 @@ app.get('/api/openapi.yaml', (_req, res) => {
   res.sendFile(openApiPath);
 });
 
+app.get('/api/pdf-proxy', async (req, res) => {
+  const rawUrl = typeof req.query.url === 'string' ? req.query.url.trim() : '';
+  if (!rawUrl) return res.status(400).json({ error: 'url query parameter is required' });
+
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return res.status(400).json({ error: 'Invalid URL' });
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    return res.status(400).json({ error: 'Only http/https URLs are supported' });
+  }
+
+  try {
+    const upstream = await fetch(parsed.toString());
+    if (!upstream.ok) {
+      return res.status(upstream.status).json({ error: `Upstream fetch failed (${upstream.status})` });
+    }
+
+    const contentType = upstream.headers.get('content-type') ?? 'application/pdf';
+    const body = Buffer.from(await upstream.arrayBuffer());
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(body);
+  } catch (error) {
+    res.status(502).json({ error: error instanceof Error ? error.message : 'Unable to fetch PDF' });
+  }
+});
+
 const packageJsonPath = path.join(__dirname, '../package.json');
 const serverVersion = (() => {
   try {
@@ -1202,6 +1233,12 @@ app.put('/api/documents/:id', (req, res) => {
   const existing = db.prepare('SELECT id FROM documents WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'Document not found' });
 
+  const normalizedTeamId = teamId != null ? Number(teamId) : null;
+  const normalizedActorUserId = actorUserId != null ? Number(actorUserId) : null;
+  const normalizedUserTypeIds = Array.isArray(userTypeIds)
+    ? [...new Set(userTypeIds.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0))]
+    : null;
+
   try {
     db.prepare(
       `UPDATE documents
@@ -1217,29 +1254,29 @@ app.put('/api/documents/:id', (req, res) => {
            updated_at = datetime('now')
        WHERE id = ?`
     ).run(
-      teamId ?? null,
+      normalizedTeamId,
       title?.trim() ?? null,
       description ?? null,
       content ?? null,
       documentType ?? null,
       schedule ?? null,
       dueDate ?? null,
-      endDate ?? null,
-      fileUrl ?? null,
+      endDate?.trim() ? endDate : null,
+      fileUrl?.trim() ? fileUrl : null,
       id
     );
 
-    if (Array.isArray(userTypeIds) && userTypeIds.length) {
+    if (Array.isArray(normalizedUserTypeIds)) {
       db.prepare('DELETE FROM document_user_types WHERE document_id = ?').run(id);
       const mapStmt = db.prepare(
         'INSERT INTO document_user_types (document_id, user_type_id) VALUES (?, ?)'
       );
-      userTypeIds.forEach((userTypeId) => mapStmt.run(id, userTypeId));
+      normalizedUserTypeIds.forEach((userTypeId) => mapStmt.run(id, userTypeId));
     }
 
     db.prepare(
       'INSERT INTO activity_feed (entity_type, entity_id, message, actor_user_id) VALUES (?, ?, ?, ?)'
-    ).run('DOCUMENT', id, 'Document updated.', actorUserId ?? null);
+    ).run('DOCUMENT', id, 'Document updated.', normalizedActorUserId);
 
     const updated = db.prepare('SELECT * FROM documents WHERE id = ?').get(id);
     res.json(updated);
