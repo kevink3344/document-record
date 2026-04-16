@@ -1606,7 +1606,7 @@ app.listen(PORT, () => {
 // SPA fallback — must be last, after all API routes
 if (process.env.NODE_ENV === 'production') {
   const clientDist = path.join(__dirname, '../../client/dist');
-  app.get('*', (_req, res) => {
+  app.use((_req, res) => {
     res.sendFile(path.join(clientDist, 'index.html'));
   });
 }
