@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:3001/api';
 
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T | null> {
   const response = await fetch(`${API_BASE}${path}`, {

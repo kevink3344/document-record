@@ -10,8 +10,21 @@ import { getDb, seedTestDataIfEmpty } from './db';
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors({ origin: 'http://localhost:5173' }));
+const allowedOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
+  : ['http://localhost:5173'];
+
+app.use(cors({ origin: (origin, cb) => {
+  if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+  cb(new Error(`CORS: origin '${origin}' not allowed`));
+}}));
 app.use(express.json());
+
+// Serve built client in production
+if (process.env.NODE_ENV === 'production') {
+  const clientDist = path.join(__dirname, '../../client/dist');
+  app.use(express.static(clientDist));
+}
 
 getDb();
 
@@ -1026,6 +1039,9 @@ app.get('/api/my-team-docs', (req, res) => {
 app.get('/api/documents/:id', (req, res) => {
   const db = getDb();
   const id = Number(req.params.id);
+  const userId = req.query.userId ? Number(req.query.userId) : null;
+  const userRole = req.query.userRole ? String(req.query.userRole) : null;
+  
   const doc = db
     .prepare(
       `SELECT d.*, tm.name AS team_name,
@@ -1041,15 +1057,29 @@ app.get('/api/documents/:id', (req, res) => {
 
   if (!doc) return res.status(404).json({ error: 'Document not found' });
 
-  const activity = db
-    .prepare(
-      `SELECT af.id, af.message, af.created_at, u.full_name AS actor_name
-       FROM activity_feed af
-       LEFT JOIN users u ON u.id = af.actor_user_id
-       WHERE af.entity_type = 'DOCUMENT' AND af.entity_id = ?
-       ORDER BY af.created_at DESC`
-    )
-    .all(id);
+  let activity;
+  if (userRole === 'USER' && userId) {
+    activity = db
+      .prepare(
+        `SELECT af.id, af.message, af.created_at, u.full_name AS actor_name
+         FROM activity_feed af
+         LEFT JOIN users u ON u.id = af.actor_user_id
+         WHERE af.entity_type = 'DOCUMENT' AND af.entity_id = ?
+           AND (af.actor_user_id = ? OR af.actor_user_id IS NULL)
+         ORDER BY af.created_at DESC`
+      )
+      .all(id, userId);
+  } else {
+    activity = db
+      .prepare(
+        `SELECT af.id, af.message, af.created_at, u.full_name AS actor_name
+         FROM activity_feed af
+         LEFT JOIN users u ON u.id = af.actor_user_id
+         WHERE af.entity_type = 'DOCUMENT' AND af.entity_id = ?
+         ORDER BY af.created_at DESC`
+      )
+      .all(id);
+  }
 
   const acknowledgments = db
     .prepare(
@@ -1572,3 +1602,11 @@ app.get('/api/reports/compliance', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
+
+// SPA fallback — must be last, after all API routes
+if (process.env.NODE_ENV === 'production') {
+  const clientDist = path.join(__dirname, '../../client/dist');
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}

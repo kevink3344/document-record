@@ -311,8 +311,11 @@ function App() {
       setDocDetails(null);
       return;
     }
-    apiRequest<DocumentDetails>(`/documents/${selectedDocId}`).then((data) => setDocDetails(data as DocumentDetails));
-  }, [selectedDocId]);
+    const endpoint = activeUser?.role === 'USER' && activeUserId
+      ? `/documents/${selectedDocId}?userId=${activeUserId}&userRole=${activeUser.role}`
+      : `/documents/${selectedDocId}`;
+    apiRequest<DocumentDetails>(endpoint).then((data) => setDocDetails(data as DocumentDetails));
+  }, [selectedDocId, activeUserId, activeUser?.role]);
 
   const filteredDocuments = useMemo(() => {
     const needle = search.trim().toLowerCase();
