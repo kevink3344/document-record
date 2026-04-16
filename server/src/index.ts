@@ -1125,39 +1125,49 @@ app.post('/api/documents', (req, res) => {
     actorUserId: number;
   };
 
-  if (!teamId || !title?.trim() || !schedule || !dueDate || !Array.isArray(userTypeIds) || !userTypeIds.length) {
+  const normalizedTeamId = Number(teamId);
+  const normalizedActorUserId = actorUserId != null ? Number(actorUserId) : null;
+  const normalizedUserTypeIds = Array.isArray(userTypeIds)
+    ? [...new Set(userTypeIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))]
+    : [];
+
+  if (!normalizedTeamId || !title?.trim() || !schedule || !dueDate || !normalizedUserTypeIds.length) {
     return res.status(400).json({ error: 'Missing required fields for document creation' });
   }
 
-  const result = db
-    .prepare(
-      `INSERT INTO documents (
-        team_id, title, description, content, document_type, schedule, due_date, end_date, file_url, created_by_user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      teamId,
-      title.trim(),
-      description ?? '',
-      content ?? '',
-      documentType ?? 'PDF',
-      schedule,
-      dueDate,
-      endDate ?? null,
-      fileUrl ?? null,
-      actorUserId ?? null
+  try {
+    const result = db
+      .prepare(
+        `INSERT INTO documents (
+          team_id, title, description, content, document_type, schedule, due_date, end_date, file_url, created_by_user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        normalizedTeamId,
+        title.trim(),
+        description ?? '',
+        content ?? '',
+        documentType ?? 'PDF',
+        schedule,
+        dueDate,
+        endDate?.trim() ? endDate : null,
+        fileUrl?.trim() ? fileUrl : null,
+        normalizedActorUserId
+      );
+
+    const linkStmt = db.prepare(
+      'INSERT INTO document_user_types (document_id, user_type_id) VALUES (?, ?)'
     );
+    normalizedUserTypeIds.forEach((userTypeId) => linkStmt.run(result.lastInsertRowid, userTypeId));
 
-  const linkStmt = db.prepare(
-    'INSERT INTO document_user_types (document_id, user_type_id) VALUES (?, ?)'
-  );
-  userTypeIds.forEach((userTypeId) => linkStmt.run(result.lastInsertRowid, userTypeId));
+    db.prepare(
+      'INSERT INTO activity_feed (entity_type, entity_id, message, actor_user_id) VALUES (?, ?, ?, ?)'
+    ).run('DOCUMENT', result.lastInsertRowid, 'Document created and assigned.', normalizedActorUserId);
 
-  db.prepare(
-    'INSERT INTO activity_feed (entity_type, entity_id, message, actor_user_id) VALUES (?, ?, ?, ?)'
-  ).run('DOCUMENT', result.lastInsertRowid, 'Document created and assigned.', actorUserId ?? null);
-
-  res.status(201).json({ id: result.lastInsertRowid });
+    res.status(201).json({ id: result.lastInsertRowid });
+  } catch (error) {
+    sendSqlError(res, error);
+  }
 });
 
 app.put('/api/documents/:id', (req, res) => {
