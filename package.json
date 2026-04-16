@@ -2,6 +2,10 @@
   "name": "document-record",
   "version": "0.0.0",
   "private": true,
+  "workspaces": [
+    "client",
+    "server"
+  ],
   "description": "React + TypeScript + Tailwind CSS app with SQLite backend",
   "scripts": {
     "dev:client": "npm run dev --prefix client",
