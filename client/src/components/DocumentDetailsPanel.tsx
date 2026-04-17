@@ -129,7 +129,7 @@ export function DocumentDetailsPanel({
             className={
               isMobileViewport
                 ? 'fixed inset-x-0 bottom-0 z-40 h-[92vh] overflow-y-auto rounded-t-2xl border-t border-slate-300 bg-white p-3 dark:border-slate-700 dark:bg-slate-950'
-                : 'fixed right-0 top-0 z-40 h-screen overflow-y-auto border-l border-slate-300 bg-white p-3 dark:border-slate-700 dark:bg-slate-950 sm:p-4'
+                : 'fixed right-0 top-14 z-40 h-[calc(100vh-3.5rem)] overflow-y-auto border-l border-slate-300 bg-white p-3 dark:border-slate-700 dark:bg-slate-950 sm:p-4'
             }
           >
             {isMobileViewport && (
@@ -195,17 +195,6 @@ export function DocumentDetailsPanel({
 
                 <PdfPreview url={docDetails.document.file_url} />
 
-                {docDetails.document.file_url && (
-                  <a
-                    href={docDetails.document.file_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex w-full items-center justify-center rounded-[3px] border border-slate-300 px-3 py-2 text-sm font-semibold hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800 sm:w-auto sm:text-xs"
-                  >
-                    <Download size={14} className="mr-2" /> Open in External Tab
-                  </a>
-                )}
-
                 {/* USER: show only their own signed ack */}
                 {activeUserRole === 'USER' && (() => {
                   const myAck = activeUserId
@@ -235,13 +224,28 @@ export function DocumentDetailsPanel({
                   return null;
                 })()}
 
-                {canAcknowledge && (
-                  <button
-                    onClick={onAcknowledge}
-                    className="inline-flex w-full items-center justify-center rounded-[3px] border border-blue-400 bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 sm:w-auto sm:px-3 sm:py-2 sm:text-xs"
-                  >
-                    <FileCheck2 size={14} className="mr-2" /> I've read and understand the document
-                  </button>
+                {(docDetails.document.file_url || canAcknowledge) && (
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                    {docDetails.document.file_url && (
+                      <a
+                        href={docDetails.document.file_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex w-full items-center justify-center rounded-[3px] border border-slate-300 px-3 py-2 text-sm font-semibold hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800 sm:w-auto sm:text-xs"
+                      >
+                        <Download size={14} className="mr-2" /> Open in External Tab
+                      </a>
+                    )}
+
+                    {canAcknowledge && (
+                      <button
+                        onClick={onAcknowledge}
+                        className="inline-flex w-full items-center justify-center rounded-[3px] border border-blue-400 bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 sm:w-auto sm:px-3 sm:py-2 sm:text-xs"
+                      >
+                        <FileCheck2 size={14} className="mr-2" /> I've read and understand the document
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             )}

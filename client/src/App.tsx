@@ -352,7 +352,7 @@ function App() {
       return ['Dashboard', 'Teams', 'Users', 'User Types', 'Schools', 'Documents', 'Reports', 'Settings'];
     }
     if (activeUser.role === 'TEAM_MANAGER') return ['Dashboard', 'My Team Docs', 'Activity', 'Reports'];
-    return ['Dashboard', 'My Documents', 'History', 'Signatures'];
+    return ['Dashboard', 'My Documents', 'Signatures', 'History'];
   }, [activeUser]);
   const greetingName = useMemo(() => {
     if (!activeUser?.full_name) return 'there';
