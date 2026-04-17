@@ -5,17 +5,37 @@ import path from 'path';
 import { execSync } from 'child_process';
 import swaggerUi from 'swagger-ui-express';
 import { load } from 'js-yaml';
-import { getDb, seedTestDataIfEmpty } from './db';
+import { getDb, seedTestDataIfEmpty, addTestUser, addTestDocument } from './db';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-const allowedOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
-  : ['http://localhost:5173'];
+const configuredOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean)
+  : [];
+
+const azureHost = process.env.WEBSITE_HOSTNAME?.trim();
+const defaultOrigins = [
+  'http://localhost:5173',
+  ...(azureHost ? [`https://${azureHost}`] : []),
+];
+
+const allowedOrigins = new Set((configuredOrigins.length ? configuredOrigins : defaultOrigins).map((origin) => {
+  try {
+    const normalized = new URL(origin);
+    return normalized.origin;
+  } catch {
+    return origin;
+  }
+}));
 
 app.use(cors({ origin: (origin, cb) => {
-  if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+  if (!origin) return cb(null, true);
+  try {
+    if (allowedOrigins.has(new URL(origin).origin)) return cb(null, true);
+  } catch {
+    if (allowedOrigins.has(origin)) return cb(null, true);
+  }
   cb(new Error(`CORS: origin '${origin}' not allowed`));
 }}));
 app.use(express.json());
@@ -171,6 +191,45 @@ app.post('/api/settings/seed-data', (req, res) => {
   return res.json({ seeded: true, message: 'Seed completed: test data has been added.' });
 });
 
+app.post('/api/settings/add-user', (req, res) => {
+  const db = getDb();
+  const { actorUserId } = req.body as { actorUserId?: number };
+  if (!actorUserId) return res.status(400).json({ error: 'actorUserId is required' });
+
+  const actor = db
+    .prepare('SELECT id, role FROM users WHERE id = ?')
+    .get(actorUserId) as { id: number; role: string } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor user not found' });
+  if (actor.role !== 'ADMINISTRATOR') {
+    return res.status(403).json({ error: 'Only administrators can add test users' });
+  }
+
+  const result = addTestUser();
+  if (!result.success) {
+    return res.status(400).json({ error: result.message });
+  }
+  return res.json({ success: true, userId: result.userId, message: result.message });
+});
+
+app.post('/api/settings/add-document', (req, res) => {
+  const db = getDb();
+  const { actorUserId } = req.body as { actorUserId?: number };
+  if (!actorUserId) return res.status(400).json({ error: 'actorUserId is required' });
+
+  const actor = db
+    .prepare('SELECT id, role FROM users WHERE id = ?')
+    .get(actorUserId) as { id: number; role: string } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor user not found' });
+  if (actor.role !== 'ADMINISTRATOR') {
+    return res.status(403).json({ error: 'Only administrators can add test documents' });
+  }
+
+  const result = addTestDocument();
+  if (!result.success) {
+    return res.status(400).json({ error: result.message });
+  }
+  return res.json({ success: true, documentId: result.documentId, message: result.message });
+});
 app.get('/api/signatures', (req, res) => {
   const db = getDb();
   const userId = req.query.userId ? toId(String(req.query.userId)) : 0;

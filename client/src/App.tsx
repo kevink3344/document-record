@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   Bell,
+  ChevronDown,
+  ChevronRight,
   LayoutPanelLeft,
   LogOut,
   Moon,
@@ -48,7 +51,10 @@ const getInitialDarkMode = () => {
 };
 
 function App() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(max-width: 767px)').matches;
+  });
   const [darkMode, setDarkMode] = useState(getInitialDarkMode);
   const [search, setSearch] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -59,6 +65,15 @@ function App() {
   const [disclaimerUpdatedAt, setDisclaimerUpdatedAt] = useState<string | null>(null);
   const [savingDisclaimer, setSavingDisclaimer] = useState(false);
   const [seedingTestData, setSeedingTestData] = useState(false);
+  const [addingTestUser, setAddingTestUser] = useState(false);
+  const [addingTestDocument, setAddingTestDocument] = useState(false);
+  const [openSettingSections, setOpenSettingSections] = useState<Record<string, boolean>>({
+    seedTestData: true,
+    addTestData: true,
+    disclaimer: true,
+  });
+  const toggleSettingSection = (key: string) =>
+    setOpenSettingSections((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const [lookups, setLookups] = useState<{
     users: LookupUser[];
@@ -141,6 +156,8 @@ function App() {
     fileUrl: '',
     userTypeIds: [] as number[],
   });
+  const [isMyTeamDocPanelOpen, setIsMyTeamDocPanelOpen] = useState(false);
+  const [isDocumentPanelOpen, setIsDocumentPanelOpen] = useState(false);
 
   const [selectedDocId, setSelectedDocId] = useState<number | null>(null);
   const [docDetails, setDocDetails] = useState<DocumentDetails | null>(null);
@@ -430,6 +447,45 @@ function App() {
     }
   };
 
+  const addTestUser = async () => {
+    if (!activeUser || activeUser.role !== 'ADMINISTRATOR') return;
+    setAddingTestUser(true);
+    try {
+      const response = await apiRequest<{ success: boolean; userId: number; message: string }>(  '/settings/add-user',
+        {
+          method: 'POST',
+          body: JSON.stringify({ actorUserId: activeUser.id }),
+        }
+      );
+      await refreshAll();
+      updateNotice(response?.message ?? 'Test user added.');
+    } catch (error) {
+      updateNotice(error instanceof Error ? error.message : 'Unable to add test user');
+    } finally {
+      setAddingTestUser(false);
+    }
+  };
+
+  const addTestDocument = async () => {
+    if (!activeUser || activeUser.role !== 'ADMINISTRATOR') return;
+    setAddingTestDocument(true);
+    try {
+      const response = await apiRequest<{ success: boolean; documentId: number; message: string }>(
+        '/settings/add-document',
+        {
+          method: 'POST',
+          body: JSON.stringify({ actorUserId: activeUser.id }),
+        }
+      );
+      await refreshAll();
+      updateNotice(response?.message ?? 'Test document added.');
+    } catch (error) {
+      updateNotice(error instanceof Error ? error.message : 'Unable to add test document');
+    } finally {
+      setAddingTestDocument(false);
+    }
+  };
+
   const createUserSignature = async (payload: { name: string; imageDataUrl: string }) => {
     if (!activeUser || activeUser.role !== 'USER') return;
     setSavingUserSignature(true);
@@ -484,6 +540,80 @@ function App() {
     } finally {
       setSettingDefaultUserSignatureId(null);
     }
+  };
+
+  const createTeamDocument = async () => {
+    if (!activeUser) return;
+    await withAction(async () => {
+      await apiRequest('/documents', {
+        method: 'POST',
+        body: JSON.stringify({
+          teamId: Number(teamDocForm.teamId),
+          title: teamDocForm.title,
+          description: teamDocForm.description,
+          content: teamDocForm.content,
+          documentType: teamDocForm.documentType,
+          schedule: teamDocForm.schedule,
+          dueDate: teamDocForm.dueDate,
+          endDate: teamDocForm.endDate,
+          fileUrl: teamDocForm.fileUrl,
+          userTypeIds: teamDocForm.userTypeIds,
+          actorUserId: activeUser.id,
+        }),
+      });
+      await refreshTeamManagerDocs(activeUser.id);
+      setTeamDocForm((p) => ({
+        ...p,
+        title: '',
+        description: '',
+        content: '',
+        dueDate: '',
+        endDate: '',
+        fileUrl: '',
+        userTypeIds: [],
+      }));
+      setIsMyTeamDocPanelOpen(false);
+    }, 'Team document created');
+  };
+
+  const createDocument = async () => {
+    if (!activeUser) return;
+    await withAction(async () => {
+      await apiRequest('/documents', {
+        method: 'POST',
+        body: JSON.stringify({
+          teamId: Number(docForm.teamId),
+          title: docForm.title,
+          description: docForm.description,
+          content: docForm.content,
+          documentType: docForm.documentType,
+          schedule: docForm.schedule,
+          dueDate: docForm.dueDate,
+          endDate: docForm.endDate,
+          fileUrl: docForm.fileUrl,
+          userTypeIds: docForm.userTypeIds,
+          actorUserId: activeUser.id,
+        }),
+      });
+      await Promise.all([
+        fetchLookups(),
+        refreshAdminData(),
+        activeUserId ? refreshDashboard(activeUserId) : Promise.resolve(),
+      ]);
+      setDocForm({
+        title: '',
+        description: '',
+        content: '',
+        teamId: '',
+        documentType: 'PDF',
+        schedule: 'YEARLY',
+        dueDate: '',
+        endDate: '',
+        fileUrl: '',
+        userTypeIds: [],
+      });
+      setIsDocumentPanelOpen(false);
+    }, 'Document created');
   };
 
   const updateNotice = (msg: string) => {
@@ -656,6 +786,15 @@ function App() {
     setSettingsOpen(false);
     setSelectedDocId(null);
     setAuthNotice('');
+  };
+
+  const handleSelectPage = (page: string) => {
+    setActivePage(page);
+    // Close menu on mobile after selecting a page
+    const mediaQuery = window.matchMedia('(max-width: 767px)');
+    if (mediaQuery.matches) {
+      setSidebarCollapsed(true);
+    }
   };
 
   const handleRegister = async () => {
@@ -842,15 +981,17 @@ function App() {
           nav={nav}
           activePage={activePage}
           sidebarCollapsed={sidebarCollapsed}
-          onSelectPage={setActivePage}
+          onSelectPage={handleSelectPage}
+          onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
         />
 
         <main className="relative flex-1">
-          <header className="sticky top-0 z-20 border-b border-slate-300 bg-[var(--theme-header)] text-white">
+          <header className="sticky top-0 z-50 border-b border-slate-300 bg-[var(--theme-header)] text-white">
             <div className="flex h-14 items-center gap-3 px-4">
               <button
                 onClick={() => setSidebarCollapsed((v) => !v)}
                 className="rounded-[3px] border border-white/30 p-2 hover:bg-white/15"
+                title={sidebarCollapsed ? 'Expand menu' : 'Collapse menu'}
               >
                 <LayoutPanelLeft size={16} />
               </button>
@@ -1386,129 +1527,27 @@ function App() {
                     <div className="mb-3 flex items-center justify-between">
                       <h3 className="text-sm font-semibold uppercase">Documents</h3>
                       <button
-                        onClick={() => setNewForms((prev) => ({ ...prev, documents: !prev.documents }))}
+                        onClick={() => {
+                          setSelectedDocId(null);
+                          setDocForm({
+                            title: '',
+                            description: '',
+                            content: '',
+                            teamId: '',
+                            documentType: 'PDF',
+                            schedule: 'YEARLY',
+                            dueDate: '',
+                            endDate: '',
+                            fileUrl: '',
+                            userTypeIds: [],
+                          });
+                          setIsDocumentPanelOpen(true);
+                        }}
                         className="border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800"
                       >
                         +New
                       </button>
                     </div>
-                    {newForms.documents && (
-                      <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-3">
-                        <input
-                          placeholder="Title"
-                          value={docForm.title}
-                          onChange={(e) => setDocForm((p) => ({ ...p, title: e.target.value }))}
-                          className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
-                        />
-                        <input
-                          placeholder="Description"
-                          value={docForm.description}
-                          onChange={(e) => setDocForm((p) => ({ ...p, description: e.target.value }))}
-                          className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700 md:col-span-3"
-                        />
-                        <input
-                          placeholder="Document URL"
-                          value={docForm.fileUrl}
-                          onChange={(e) => setDocForm((p) => ({ ...p, fileUrl: e.target.value }))}
-                          className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700 md:col-span-3"
-                        />
-                        <input
-                          placeholder="Content"
-                          value={docForm.content}
-                          onChange={(e) => setDocForm((p) => ({ ...p, content: e.target.value }))}
-                          className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
-                        />
-                        <select
-                          value={docForm.teamId}
-                          onChange={(e) => setDocForm((p) => ({ ...p, teamId: e.target.value }))}
-                          className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
-                        >
-                          <option value="">Team</option>
-                          {teams.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.name}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          value={docForm.schedule}
-                          onChange={(e) => setDocForm((p) => ({ ...p, schedule: e.target.value as 'MONTHLY' | 'QUARTERLY' | 'YEARLY' }))}
-                          className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
-                        >
-                          <option value="MONTHLY">MONTHLY</option>
-                          <option value="QUARTERLY">QUARTERLY</option>
-                          <option value="YEARLY">YEARLY</option>
-                        </select>
-                        <input
-                          type="date"
-                          value={docForm.dueDate}
-                          onChange={(e) => setDocForm((p) => ({ ...p, dueDate: e.target.value }))}
-                          className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
-                        />
-                        <input
-                          type="date"
-                          value={docForm.endDate}
-                          onChange={(e) => setDocForm((p) => ({ ...p, endDate: e.target.value }))}
-                          className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
-                        />
-                        <select
-                          multiple
-                          value={docForm.userTypeIds.map(String)}
-                          onChange={(e) =>
-                            setDocForm((p) => ({
-                              ...p,
-                              userTypeIds: Array.from(e.target.selectedOptions).map((opt) => Number(opt.value)),
-                            }))
-                          }
-                          className="h-24 border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
-                        >
-                          {userTypes.map((ut) => (
-                            <option key={ut.id} value={ut.id}>
-                              {ut.name}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={() =>
-                            withAction(async () => {
-                              if (!activeUser) return;
-                              await apiRequest('/documents', {
-                                method: 'POST',
-                                body: JSON.stringify({
-                                  teamId: Number(docForm.teamId),
-                                  title: docForm.title,
-                                  description: docForm.description,
-                                  content: docForm.content,
-                                  documentType: docForm.documentType,
-                                  schedule: docForm.schedule,
-                                  dueDate: docForm.dueDate,
-                                  endDate: docForm.endDate,
-                                  fileUrl: docForm.fileUrl,
-                                  userTypeIds: docForm.userTypeIds,
-                                  actorUserId: activeUser.id,
-                                }),
-                              });
-                              setDocForm({
-                                title: '',
-                                description: '',
-                                content: '',
-                                teamId: '',
-                                documentType: 'PDF',
-                                schedule: 'YEARLY',
-                                dueDate: '',
-                                endDate: '',
-                                fileUrl: '',
-                                userTypeIds: [],
-                              });
-                              setNewForms((prev) => ({ ...prev, documents: false }));
-                            }, 'Document created')
-                          }
-                          className="border border-blue-400 bg-blue-600 px-2 py-2 text-xs font-semibold text-white"
-                        >
-                          Create Document
-                        </button>
-                      </div>
-                    )}
 
                     <div className="space-y-2">
                       {documents.map((doc) => (
@@ -1562,45 +1601,99 @@ function App() {
                       </p>
                     </div>
 
-                    <div className="rounded-[3px] border border-slate-200 p-3 dark:border-slate-700">
-                      <p className="mb-1 text-xs font-semibold uppercase text-slate-500">Seed Test Data</p>
-                      <p className="mb-2 text-xs text-slate-500">
-                        Runs once only when the database is empty. Safe for new Railway/Azure test environments.
-                      </p>
+                    {/* Seed Test Data */}
+                    <div className="rounded-[3px] border border-slate-200 dark:border-slate-700">
                       <button
-                        onClick={seedTestData}
-                        disabled={seedingTestData}
-                        className="border border-blue-400 bg-blue-600 px-2 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={() => toggleSettingSection('seedTestData')}
+                        className="flex w-full items-center justify-between px-3 py-2 text-xs font-semibold uppercase text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
                       >
-                        {seedingTestData ? 'Seeding...' : 'Seed Test Data'}
+                        Seed Test Data
+                        {openSettingSections.seedTestData ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                       </button>
+                      {openSettingSections.seedTestData && (
+                        <div className="border-t border-slate-200 p-3 dark:border-slate-700">
+                          <p className="mb-2 text-xs text-slate-500">
+                            Runs once only when the database is empty. Safe for new test environments.
+                          </p>
+                          <button
+                            onClick={seedTestData}
+                            disabled={seedingTestData}
+                            className="border border-blue-400 bg-blue-600 px-2 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {seedingTestData ? 'Seeding...' : 'Seed Test Data'}
+                          </button>
+                        </div>
+                      )}
                     </div>
 
-                    <div className="rounded-[3px] border border-slate-200 p-3 dark:border-slate-700">
-                      <p className="mb-1 text-xs font-semibold uppercase text-slate-500">Acknowledgment Disclaimer</p>
-                      <p className="mb-2 text-xs text-slate-500">
-                        This text appears in the signature dialog when users acknowledge a document.
-                      </p>
-                      <textarea
-                        value={disclaimerDraft}
-                        onChange={(e) => setDisclaimerDraft(e.target.value)}
-                        rows={4}
-                        className="w-full border border-slate-300 px-2 py-2 text-xs dark:border-slate-700"
-                      />
-                      <div className="mt-2 flex items-center justify-between gap-2">
-                        <p className="text-[11px] text-slate-500">
-                          {disclaimerUpdatedAt
-                            ? `Last updated ${new Date(disclaimerUpdatedAt).toLocaleString()}`
-                            : 'No disclaimer update recorded yet.'}
-                        </p>
-                        <button
-                          onClick={saveDisclaimer}
-                          disabled={savingDisclaimer || disclaimerDraft === disclaimerText}
-                          className="border border-blue-400 bg-blue-600 px-2 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {savingDisclaimer ? 'Saving...' : 'Save Disclaimer'}
-                        </button>
-                      </div>
+                    {/* Add Test Data */}
+                    <div className="rounded-[3px] border border-slate-200 dark:border-slate-700">
+                      <button
+                        onClick={() => toggleSettingSection('addTestData')}
+                        className="flex w-full items-center justify-between px-3 py-2 text-xs font-semibold uppercase text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
+                      >
+                        Add Test Data
+                        {openSettingSections.addTestData ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      </button>
+                      {openSettingSections.addTestData && (
+                        <div className="border-t border-slate-200 p-3 dark:border-slate-700">
+                          <p className="mb-2 text-xs text-slate-500">Add individual test users or documents at any time.</p>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={addTestUser}
+                              disabled={addingTestUser}
+                              className="flex-1 border border-amber-400 bg-amber-600 px-2 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {addingTestUser ? 'Adding...' : '+ Add User'}
+                            </button>
+                            <button
+                              onClick={addTestDocument}
+                              disabled={addingTestDocument}
+                              className="flex-1 border border-emerald-400 bg-emerald-600 px-2 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {addingTestDocument ? 'Adding...' : '+ Add Document'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Acknowledgment Disclaimer */}
+                    <div className="rounded-[3px] border border-slate-200 dark:border-slate-700">
+                      <button
+                        onClick={() => toggleSettingSection('disclaimer')}
+                        className="flex w-full items-center justify-between px-3 py-2 text-xs font-semibold uppercase text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
+                      >
+                        Acknowledgment Disclaimer
+                        {openSettingSections.disclaimer ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      </button>
+                      {openSettingSections.disclaimer && (
+                        <div className="border-t border-slate-200 p-3 dark:border-slate-700">
+                          <p className="mb-2 text-xs text-slate-500">
+                            This text appears in the signature dialog when users acknowledge a document.
+                          </p>
+                          <textarea
+                            value={disclaimerDraft}
+                            onChange={(e) => setDisclaimerDraft(e.target.value)}
+                            rows={4}
+                            className="w-full border border-slate-300 px-2 py-2 text-xs dark:border-slate-700"
+                          />
+                          <div className="mt-2 flex items-center justify-between gap-2">
+                            <p className="text-[11px] text-slate-500">
+                              {disclaimerUpdatedAt
+                                ? `Last updated ${new Date(disclaimerUpdatedAt).toLocaleString()}`
+                                : 'No disclaimer update recorded yet.'}
+                            </p>
+                            <button
+                              onClick={saveDisclaimer}
+                              disabled={savingDisclaimer || disclaimerDraft === disclaimerText}
+                              className="border border-blue-400 bg-blue-600 px-2 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {savingDisclaimer ? 'Saving...' : 'Save Disclaimer'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </section>
                 )}
@@ -1671,132 +1764,20 @@ function App() {
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="text-sm font-semibold uppercase">My Team Docs</h3>
                   <button
-                    onClick={() => setNewForms((prev) => ({ ...prev, myTeamDocs: !prev.myTeamDocs }))}
+                    onClick={() => {
+                      setSelectedDocId(null);
+                      setTeamDocForm((p) => ({
+                        ...p,
+                        teamId: p.teamId || String(teams[0]?.id ?? ''),
+                      }));
+                      setIsMyTeamDocPanelOpen(true);
+                    }}
                     className="border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800"
                   >
                     +New
                   </button>
                 </div>
                 <p className="mb-3 text-xs text-slate-500">Manage documents assigned to your team(s). You can add new documents or edit existing ones.</p>
-
-                {newForms.myTeamDocs && (
-                  <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-3">
-                    <select
-                      value={teamDocForm.teamId}
-                      onChange={(e) => setTeamDocForm((p) => ({ ...p, teamId: e.target.value }))}
-                      className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
-                    >
-                      <option value="">Team</option>
-                      {teams.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      placeholder="Title"
-                      value={teamDocForm.title}
-                      onChange={(e) => setTeamDocForm((p) => ({ ...p, title: e.target.value }))}
-                      className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
-                    />
-                    <input
-                      placeholder="Description"
-                      value={teamDocForm.description}
-                      onChange={(e) => setTeamDocForm((p) => ({ ...p, description: e.target.value }))}
-                      className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700 md:col-span-3"
-                    />
-                    <input
-                      placeholder="Document URL"
-                      value={teamDocForm.fileUrl}
-                      onChange={(e) => setTeamDocForm((p) => ({ ...p, fileUrl: e.target.value }))}
-                      className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700 md:col-span-3"
-                    />
-                    <input
-                      placeholder="Content"
-                      value={teamDocForm.content}
-                      onChange={(e) => setTeamDocForm((p) => ({ ...p, content: e.target.value }))}
-                      className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
-                    />
-                    <select
-                      value={teamDocForm.schedule}
-                      onChange={(e) =>
-                        setTeamDocForm((p) => ({ ...p, schedule: e.target.value as 'MONTHLY' | 'QUARTERLY' | 'YEARLY' }))
-                      }
-                      className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
-                    >
-                      <option value="MONTHLY">MONTHLY</option>
-                      <option value="QUARTERLY">QUARTERLY</option>
-                      <option value="YEARLY">YEARLY</option>
-                    </select>
-                    <input
-                      type="date"
-                      value={teamDocForm.dueDate}
-                      onChange={(e) => setTeamDocForm((p) => ({ ...p, dueDate: e.target.value }))}
-                      className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
-                    />
-                    <input
-                      type="date"
-                      value={teamDocForm.endDate}
-                      onChange={(e) => setTeamDocForm((p) => ({ ...p, endDate: e.target.value }))}
-                      className="border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
-                    />
-                    <select
-                      multiple
-                      value={teamDocForm.userTypeIds.map(String)}
-                      onChange={(e) =>
-                        setTeamDocForm((p) => ({
-                          ...p,
-                          userTypeIds: Array.from(e.target.selectedOptions).map((opt) => Number(opt.value)),
-                        }))
-                      }
-                      className="h-24 border border-slate-300 px-2 py-2 text-sm dark:border-slate-700"
-                    >
-                      {lookups.userTypes.map((ut) => (
-                        <option key={ut.id} value={ut.id}>
-                          {ut.name}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={() =>
-                        withAction(async () => {
-                          if (!activeUser) return;
-                          await apiRequest('/documents', {
-                            method: 'POST',
-                            body: JSON.stringify({
-                              teamId: Number(teamDocForm.teamId),
-                              title: teamDocForm.title,
-                              description: teamDocForm.description,
-                              content: teamDocForm.content,
-                              documentType: teamDocForm.documentType,
-                              schedule: teamDocForm.schedule,
-                              dueDate: teamDocForm.dueDate,
-                              endDate: teamDocForm.endDate,
-                              fileUrl: teamDocForm.fileUrl,
-                              userTypeIds: teamDocForm.userTypeIds,
-                              actorUserId: activeUser.id,
-                            }),
-                          });
-                          await refreshTeamManagerDocs(activeUser.id);
-                          setTeamDocForm((p) => ({
-                            ...p,
-                            title: '',
-                            description: '',
-                            content: '',
-                            dueDate: '',
-                            endDate: '',
-                            fileUrl: '',
-                            userTypeIds: [],
-                          }));
-                          setNewForms((prev) => ({ ...prev, myTeamDocs: false }));
-                        }, 'Team document created')
-                      }
-                      className="border border-blue-400 bg-blue-600 px-2 py-2 text-xs font-semibold text-white"
-                    >
-                      Add Team Document
-                    </button>
-                  </div>
-                )}
 
                 <div className="space-y-2">
                   {teamDocs.length ? (
@@ -1840,7 +1821,7 @@ function App() {
               <div className="rounded-[3px] border border-slate-300 bg-[var(--theme-card)] p-6 text-sm">Loading DocRecord...</div>
             ) : (
               <>
-                {activeUser.role !== 'USER' && (
+                {activeUser.role === 'USER' && (
                   <section className="grid grid-cols-1 gap-3 md:grid-cols-4">
                     {[
                       ['Assigned', dashboard.summary.assigned],
@@ -1885,44 +1866,365 @@ function App() {
                   </div>
                 </section>
 
-                <section className="overflow-x-auto rounded-[3px] border border-slate-200 bg-[var(--theme-card)] dark:border-slate-700">
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                      <tr>
-                        <th className="px-3 py-2">Document</th>
-                        <th className="px-3 py-2">Team</th>
-                        <th className="px-3 py-2">User Types</th>
-                        <th className="px-3 py-2">Due</th>
-                        <th className="px-3 py-2">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredDocuments.map((doc) => (
-                        <tr
-                          key={doc.id}
-                          className="cursor-pointer border-t border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900"
-                          onClick={() => setSelectedDocId(doc.id)}
-                        >
-                          <td className="px-3 py-2">
-                            <p className="font-semibold">{doc.title}</p>
-                            <p className="text-xs text-slate-500">{doc.schedule} • {doc.document_type}</p>
-                          </td>
-                          <td className="px-3 py-2">{doc.team_name}</td>
-                          <td className="px-3 py-2">{doc.user_types}</td>
-                          <td className="px-3 py-2">{formatDueText(doc.due_date)}</td>
-                          <td className="px-3 py-2">
-                            <span className={`rounded-[3px] px-2 py-1 text-xs font-semibold ${badgeClass(doc.status)}`}>{doc.status}</span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
+                  <div className="space-y-2">
+                    {filteredDocuments.map((doc) => (
+                      <button
+                        key={doc.id}
+                        onClick={() => setSelectedDocId(doc.id)}
+                        className="w-full rounded-[3px] border border-slate-200 bg-white p-4 text-left hover:border-slate-400 dark:border-slate-700 dark:bg-slate-900"
+                      >
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                          <div>
+                            <p className="text-sm font-semibold leading-snug sm:text-base">{doc.title}</p>
+                            <p className="mt-1 text-xs text-slate-500">{doc.team_name} • {doc.schedule} • {doc.user_types}</p>
+                          </div>
+                          <span className={`inline-flex w-fit rounded-[3px] px-2 py-1 text-xs font-semibold ${badgeClass(doc.status)}`}>
+                            {doc.status}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-500">{formatDueText(doc.due_date)}</p>
+                      </button>
+                    ))}
+                  </div>
                 </section>
               </>
             )}
           </div>
         </main>
       </div>
+
+      <AnimatePresence>
+        {isMyTeamDocPanelOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMyTeamDocPanelOpen(false)}
+              className="fixed inset-0 z-40 bg-slate-900/20"
+            />
+            <motion.aside
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ duration: 0.24, ease: 'easeInOut' }}
+              className="fixed right-0 top-0 z-50 h-screen w-full max-w-2xl overflow-y-auto border-l border-slate-300 bg-white p-4 dark:border-slate-700 dark:bg-slate-950"
+            >
+              <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-2 dark:border-slate-700">
+                <h3 className="text-lg font-semibold">New Team Document</h3>
+                <button
+                  onClick={() => setIsMyTeamDocPanelOpen(false)}
+                  className="text-sm text-slate-500 hover:text-slate-800"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="space-y-3 text-sm">
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase text-slate-500">Team</span>
+                  <select
+                    value={teamDocForm.teamId}
+                    onChange={(e) => setTeamDocForm((p) => ({ ...p, teamId: e.target.value }))}
+                    className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                  >
+                    <option value="">Select team</option>
+                    {teams.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase text-slate-500">Title</span>
+                  <input
+                    value={teamDocForm.title}
+                    onChange={(e) => setTeamDocForm((p) => ({ ...p, title: e.target.value }))}
+                    className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                    placeholder="Document title"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase text-slate-500">Description</span>
+                  <textarea
+                    value={teamDocForm.description}
+                    onChange={(e) => setTeamDocForm((p) => ({ ...p, description: e.target.value }))}
+                    className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                    rows={3}
+                    placeholder="Short description"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase text-slate-500">Document URL</span>
+                  <input
+                    value={teamDocForm.fileUrl}
+                    onChange={(e) => setTeamDocForm((p) => ({ ...p, fileUrl: e.target.value }))}
+                    className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                    placeholder="https://..."
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase text-slate-500">Content</span>
+                  <input
+                    value={teamDocForm.content}
+                    onChange={(e) => setTeamDocForm((p) => ({ ...p, content: e.target.value }))}
+                    className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                    placeholder="Optional inline content"
+                  />
+                </label>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <label className="block">
+                    <span className="mb-1 block text-xs uppercase text-slate-500">Schedule</span>
+                    <select
+                      value={teamDocForm.schedule}
+                      onChange={(e) =>
+                        setTeamDocForm((p) => ({ ...p, schedule: e.target.value as 'MONTHLY' | 'QUARTERLY' | 'YEARLY' }))
+                      }
+                      className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                    >
+                      <option value="MONTHLY">MONTHLY</option>
+                      <option value="QUARTERLY">QUARTERLY</option>
+                      <option value="YEARLY">YEARLY</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs uppercase text-slate-500">Due Date</span>
+                    <input
+                      type="date"
+                      value={teamDocForm.dueDate}
+                      onChange={(e) => setTeamDocForm((p) => ({ ...p, dueDate: e.target.value }))}
+                      className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs uppercase text-slate-500">End Date</span>
+                    <input
+                      type="date"
+                      value={teamDocForm.endDate}
+                      onChange={(e) => setTeamDocForm((p) => ({ ...p, endDate: e.target.value }))}
+                      className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                    />
+                  </label>
+                </div>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase text-slate-500">User Types</span>
+                  <select
+                    multiple
+                    value={teamDocForm.userTypeIds.map(String)}
+                    onChange={(e) =>
+                      setTeamDocForm((p) => ({
+                        ...p,
+                        userTypeIds: Array.from(e.target.selectedOptions).map((opt) => Number(opt.value)),
+                      }))
+                    }
+                    className="h-28 w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                  >
+                    {lookups.userTypes.map((ut) => (
+                      <option key={ut.id} value={ut.id}>
+                        {ut.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">Hold Ctrl/Cmd to select multiple user types.</p>
+                </label>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    onClick={() => {
+                      createTeamDocument().catch((error) =>
+                        updateNotice(error instanceof Error ? error.message : 'Unable to create document')
+                      );
+                    }}
+                    className="rounded-[3px] border border-blue-400 bg-blue-600 px-3 py-2 text-xs font-semibold text-white"
+                  >
+                    Add Team Document
+                  </button>
+                  <button
+                    onClick={() => setIsMyTeamDocPanelOpen(false)}
+                    className="rounded-[3px] border border-slate-300 px-3 py-2 text-xs hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isDocumentPanelOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsDocumentPanelOpen(false)}
+              className="fixed inset-0 z-40 bg-slate-900/20"
+            />
+            <motion.aside
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ duration: 0.24, ease: 'easeInOut' }}
+              className="fixed right-0 top-0 z-50 h-screen w-full max-w-2xl overflow-y-auto border-l border-slate-300 bg-white p-4 dark:border-slate-700 dark:bg-slate-950"
+            >
+              <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-2 dark:border-slate-700">
+                <h3 className="text-lg font-semibold">New Document</h3>
+                <button
+                  onClick={() => setIsDocumentPanelOpen(false)}
+                  className="text-sm text-slate-500 hover:text-slate-800"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="space-y-3 text-sm">
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase text-slate-500">Team</span>
+                  <select
+                    value={docForm.teamId}
+                    onChange={(e) => setDocForm((p) => ({ ...p, teamId: e.target.value }))}
+                    className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                  >
+                    <option value="">Select team</option>
+                    {teams.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase text-slate-500">Title</span>
+                  <input
+                    value={docForm.title}
+                    onChange={(e) => setDocForm((p) => ({ ...p, title: e.target.value }))}
+                    className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                    placeholder="Document title"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase text-slate-500">Description</span>
+                  <textarea
+                    value={docForm.description}
+                    onChange={(e) => setDocForm((p) => ({ ...p, description: e.target.value }))}
+                    className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                    rows={3}
+                    placeholder="Short description"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase text-slate-500">Document URL</span>
+                  <input
+                    value={docForm.fileUrl}
+                    onChange={(e) => setDocForm((p) => ({ ...p, fileUrl: e.target.value }))}
+                    className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                    placeholder="https://..."
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase text-slate-500">Content</span>
+                  <input
+                    value={docForm.content}
+                    onChange={(e) => setDocForm((p) => ({ ...p, content: e.target.value }))}
+                    className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                    placeholder="Optional inline content"
+                  />
+                </label>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <label className="block">
+                    <span className="mb-1 block text-xs uppercase text-slate-500">Schedule</span>
+                    <select
+                      value={docForm.schedule}
+                      onChange={(e) =>
+                        setDocForm((p) => ({ ...p, schedule: e.target.value as 'MONTHLY' | 'QUARTERLY' | 'YEARLY' }))
+                      }
+                      className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                    >
+                      <option value="MONTHLY">MONTHLY</option>
+                      <option value="QUARTERLY">QUARTERLY</option>
+                      <option value="YEARLY">YEARLY</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs uppercase text-slate-500">Due Date</span>
+                    <input
+                      type="date"
+                      value={docForm.dueDate}
+                      onChange={(e) => setDocForm((p) => ({ ...p, dueDate: e.target.value }))}
+                      className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs uppercase text-slate-500">End Date</span>
+                    <input
+                      type="date"
+                      value={docForm.endDate}
+                      onChange={(e) => setDocForm((p) => ({ ...p, endDate: e.target.value }))}
+                      className="w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                    />
+                  </label>
+                </div>
+
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase text-slate-500">User Types</span>
+                  <select
+                    multiple
+                    value={docForm.userTypeIds.map(String)}
+                    onChange={(e) =>
+                      setDocForm((p) => ({
+                        ...p,
+                        userTypeIds: Array.from(e.target.selectedOptions).map((opt) => Number(opt.value)),
+                      }))
+                    }
+                    className="h-28 w-full border border-slate-300 px-2 py-2 dark:border-slate-700"
+                  >
+                    {userTypes.map((ut) => (
+                      <option key={ut.id} value={ut.id}>
+                        {ut.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">Hold Ctrl/Cmd to select multiple user types.</p>
+                </label>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    onClick={() => {
+                      createDocument().catch((error) =>
+                        updateNotice(error instanceof Error ? error.message : 'Unable to create document')
+                      );
+                    }}
+                    className="rounded-[3px] border border-blue-400 bg-blue-600 px-3 py-2 text-xs font-semibold text-white"
+                  >
+                    Create Document
+                  </button>
+                  <button
+                    onClick={() => setIsDocumentPanelOpen(false)}
+                    className="rounded-[3px] border border-slate-300 px-3 py-2 text-xs hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
 
       <EditPanel
         editPanel={editPanel}

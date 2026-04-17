@@ -46,6 +46,122 @@ export function seedTestDataIfEmpty(): { seeded: boolean; reason: 'seeded' | 'al
   return { seeded: true, reason: 'seeded' };
 }
 
+export function addTestUser(): { success: boolean; userId?: number; message: string } {
+  try {
+    // Get or create schools if needed
+    const schools = db.prepare('SELECT id FROM schools').all() as Array<{ id: number }>;
+    const userTypes = db.prepare('SELECT id FROM user_types').all() as Array<{ id: number }>;
+
+    if (schools.length === 0 || userTypes.length === 0) {
+      return { success: false, message: 'Schools and user types must exist before adding users' };
+    }
+
+    const testUsers = [
+      { full_name: 'Alice Johnson', email: 'alice.johnson@test.local', role: 'USER' },
+      { full_name: 'Bob Martinez', email: 'bob.martinez@test.local', role: 'USER' },
+      { full_name: 'Carol Smith', email: 'carol.smith@test.local', role: 'USER' },
+      { full_name: 'David Lee', email: 'david.lee@test.local', role: 'TEAM_MANAGER' },
+    ];
+
+    const randomUser = testUsers[Math.floor(Math.random() * testUsers.length)];
+    const randomSchool = schools[Math.floor(Math.random() * schools.length)];
+    const randomUserType = userTypes[Math.floor(Math.random() * userTypes.length)];
+
+    const result = db
+      .prepare(
+        `INSERT INTO users (full_name, email, role, school_id, user_type_id)
+         VALUES (?, ?, ?, ?, ?)`
+      )
+      .run(randomUser.full_name, randomUser.email, randomUser.role, randomSchool.id, randomUserType.id);
+
+    return {
+      success: true,
+      userId: Number(result.lastInsertRowid),
+      message: `Test user "${randomUser.full_name}" added successfully.`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Failed to add test user',
+    };
+  }
+}
+
+export function addTestDocument(): { success: boolean; documentId?: number; message: string } {
+  try {
+    const teams = db.prepare('SELECT id FROM teams').all() as Array<{ id: number }>;
+    const userTypes = db.prepare('SELECT id FROM user_types').all() as Array<{ id: number }>;
+
+    if (teams.length === 0 || userTypes.length === 0) {
+      return { success: false, message: 'Teams and user types must exist before adding documents' };
+    }
+
+    const testDocuments = [
+      {
+        title: 'Annual Compliance Review',
+        description: 'Yearly compliance checkpoint',
+        schedule: 'YEARLY',
+      },
+      {
+        title: 'Quarterly Safety Assessment',
+        description: 'Quarterly safety review',
+        schedule: 'QUARTERLY',
+      },
+      {
+        title: 'Monthly Team Update',
+        description: 'Monthly information update',
+        schedule: 'MONTHLY',
+      },
+    ];
+
+    const randomDoc = testDocuments[Math.floor(Math.random() * testDocuments.length)];
+    const randomTeam = teams[Math.floor(Math.random() * teams.length)];
+    const randomUserType = userTypes[Math.floor(Math.random() * userTypes.length)];
+
+    const now = new Date();
+    const addDays = (days: number) => {
+      const d = new Date(now);
+      d.setDate(d.getDate() + days);
+      return d.toISOString();
+    };
+
+    const result = db
+      .prepare(
+        `INSERT INTO documents (
+        team_id, title, description, content, document_type, schedule, due_date, end_date, file_url, created_by_user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, null)`
+      )
+      .run(
+        randomTeam.id,
+        randomDoc.title,
+        randomDoc.description,
+        'Test document content',
+        'PDF',
+        randomDoc.schedule,
+        addDays(15),
+        addDays(365),
+        'https://mozilla.github.io/pdf.js/web/compressed.tracemonkey-pldi-09.pdf'
+      );
+
+    const docId = Number(result.lastInsertRowid);
+    db.prepare('INSERT INTO document_user_types (document_id, user_type_id) VALUES (?, ?)').run(
+      docId,
+      randomUserType.id
+    );
+
+    return {
+      success: true,
+      documentId: docId,
+      message: `Test document "${randomDoc.title}" added successfully.`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Failed to add test document',
+    };
+  }
+}
+
 function initSchema(): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS teams (
