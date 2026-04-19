@@ -47,11 +47,21 @@ export function PdfPreview({ url }: { url?: string }) {
   const [pages, setPages] = useState<PDFPageProxy[]>([]);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [googleDocLoaded, setGoogleDocLoaded] = useState(false);
 
   const normalizedUrl = (url ?? '').trim();
   const googleDocPreviewUrl = normalizedUrl ? getGoogleDocPreviewUrl(normalizedUrl) : null;
   const isGoogleDoc = Boolean(googleDocPreviewUrl);
   const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:3001/api';
+
+  // Reset states when URL changes
+  useEffect(() => {
+    setGoogleDocLoaded(false);
+    setError('');
+    setLoading(false);
+    setPages([]);
+    setProgress(0);
+  }, [normalizedUrl]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -135,13 +145,22 @@ export function PdfPreview({ url }: { url?: string }) {
   return (
     <div className="rounded-[3px] border border-slate-200 bg-slate-50 p-2 sm:p-3">
       {isGoogleDoc ? (
-        <div className="h-[26rem] w-full overflow-hidden rounded-[3px] border border-slate-300 bg-white">
-          <iframe
-            src={googleDocPreviewUrl ?? undefined}
-            title="Google Doc preview"
-            className="h-full w-full"
-            loading="lazy"
-          />
+        <div className="relative">
+          <div className="h-[26rem] w-full overflow-hidden rounded-[3px] border border-slate-300 bg-white">
+            <iframe
+              src={googleDocPreviewUrl ?? undefined}
+              title="Google Doc preview"
+              className="h-full w-full"
+              loading="lazy"
+              onLoad={() => setGoogleDocLoaded(true)}
+            />
+          </div>
+          <div className="mt-1 h-1 bg-slate-200 rounded-b-[3px]">
+            <div
+              className={`h-full transition-all duration-500 ${googleDocLoaded ? 'bg-green-500' : 'bg-slate-300'}`}
+              style={{ width: googleDocLoaded ? '100%' : '0%' }}
+            />
+          </div>
         </div>
       ) : error ? (
         <p className="text-sm text-slate-600 sm:text-xs">{error}</p>
