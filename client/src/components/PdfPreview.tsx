@@ -160,7 +160,7 @@ export function PdfPreview({ url }: { url?: string }) {
             )}
           </div>
           {!loading && pages.length > 0 && (
-            <div className="absolute bottom-0 left-0 right-0 h-1 bg-slate-200 rounded-b-[3px]">
+            <div className="absolute bottom-2 left-0 right-0 h-1 bg-slate-200 rounded-b-[3px]">
               <div
                 className="h-full bg-blue-500 transition-all duration-100"
                 style={{ width: `${progress}%` }}
