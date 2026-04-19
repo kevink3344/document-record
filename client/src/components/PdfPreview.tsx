@@ -146,10 +146,10 @@ export function PdfPreview({ url }: { url?: string }) {
       ) : error ? (
         <p className="text-sm text-slate-600 sm:text-xs">{error}</p>
       ) : (
-        <div className="relative">
+        <div>
           <div
             ref={containerRef}
-            className="max-h-56 overflow-auto sm:max-h-72 pb-3"
+            className="max-h-56 overflow-auto sm:max-h-72"
           >
             {loading ? (
               <p className="text-sm text-slate-600">Loading PDF...</p>
@@ -160,7 +160,7 @@ export function PdfPreview({ url }: { url?: string }) {
             )}
           </div>
           {!loading && pages.length > 0 && (
-            <div className="absolute bottom-0 left-0 right-0 h-1 bg-slate-200 rounded-b-[3px]">
+            <div className="mt-1 h-1 bg-slate-200 rounded-b-[3px]">
               <div
                 className="h-full bg-blue-500 transition-all duration-100"
                 style={{ width: `${progress}%` }}
