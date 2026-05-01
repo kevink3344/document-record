@@ -101,3 +101,146 @@ export type EditPanelState = {
 };
 
 export type DetailTab = 'DETAILS' | 'ACTIVITY' | 'SIGNATURES';
+
+// ─── Form Template Types ─────────────────────────────────────────────────────
+
+export type FormFieldType =
+  | 'short_text'
+  | 'long_text'
+  | 'number'
+  | 'date'
+  | 'single_select'
+  | 'multi_select'
+  | 'checkbox'
+  | 'attachment'
+  | 'signature';
+
+export type FormTemplateStatus = 'draft' | 'published' | 'archived';
+export type FormResponseStatus = 'draft' | 'submitted';
+
+export type FormTemplateField = {
+  id: number;
+  template_version_id: number;
+  field_key: string;
+  label: string;
+  help_text: string;
+  field_type: FormFieldType;
+  is_required: number;
+  sort_order: number;
+  config_json: string;
+};
+
+export type FormTemplateVersion = {
+  id: number;
+  template_id: number;
+  version_number: number;
+  title: string;
+  description: string;
+  status: FormTemplateStatus;
+  created_by_user_id: number | null;
+  created_by_name?: string;
+  created_at: string;
+};
+
+export type FormTemplateListItem = {
+  id: number;
+  created_by_user_id: number | null;
+  created_by_name?: string;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+  // latest version columns joined
+  latest_version_id: number | null;
+  version_number: number | null;
+  title: string | null;
+  description: string | null;
+  status: FormTemplateStatus | null;
+  version_created_at: string | null;
+};
+
+export type FormTemplateDetail = {
+  id: number;
+  created_by_user_id: number | null;
+  created_by_name?: string;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+  versions: FormTemplateVersion[];
+  latestFields: FormTemplateField[];
+};
+
+export type FormAssignment = {
+  id: number;
+  template_id: number;
+  template_version_id: number;
+  assigned_by_user_id: number | null;
+  assigned_by_name?: string;
+  title_override: string | null;
+  instructions: string;
+  open_at: string | null;
+  close_at: string | null;
+  created_at: string;
+  template_title: string;
+  version_number: number;
+  description?: string;
+  response_count?: number;
+  submitted_count?: number;
+  // for-user view
+  response_id?: number | null;
+  response_status?: FormResponseStatus | null;
+  first_submitted_at?: string | null;
+  last_submitted_at?: string | null;
+  last_edited_at?: string | null;
+};
+
+export type FormAssignmentDetail = FormAssignment & {
+  fields: FormTemplateField[];
+  userTypeIds: number[];
+  userIds: number[];
+  userResponse: FormResponseSummary | null;
+};
+
+export type FormResponseSummary = {
+  id: number;
+  status: FormResponseStatus;
+  first_submitted_at: string | null;
+  last_submitted_at: string | null;
+  last_edited_at: string | null;
+};
+
+export type FormResponseAnswer = {
+  id: number;
+  response_id: number;
+  field_id: number;
+  value_text: string;
+  value_json: string | null;
+};
+
+export type FormResponseRevision = {
+  id: number;
+  response_id: number;
+  edited_by_user_id: number | null;
+  edited_by_name?: string;
+  revision_number: number;
+  change_summary: string;
+  snapshot_json: string;
+  created_at: string;
+};
+
+export type FormResponse = {
+  id: number;
+  assignment_id: number;
+  template_id: number;
+  template_version_id: number;
+  user_id: number;
+  user_name?: string;
+  status: FormResponseStatus;
+  first_submitted_at: string | null;
+  last_submitted_at: string | null;
+  last_edited_at: string | null;
+  submitted_to_user_id: number | null;
+  created_at: string;
+  updated_at: string;
+  answers: FormResponseAnswer[];
+  revisions: FormResponseRevision[];
+};

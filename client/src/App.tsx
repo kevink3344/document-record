@@ -17,8 +17,13 @@ import { GreetingCard } from './components/GreetingCard';
 import { ReportsPanel } from './components/ReportsPanel';
 import { SidebarNav } from './components/SidebarNav';
 import { SignatureModal } from './components/SignatureModal';
+import { CategoryTagManager } from './components/CategoryTagManager';
 import { UserSignaturesPanel } from './components/UserSignaturesPanel';
 import { ComplianceChart } from './components/ComplianceChart';
+import { FormBuilderPanel } from './components/FormBuilderPanel';
+import { FormAssignPanel } from './components/FormAssignPanel';
+import { FormFillPanel } from './components/FormFillPanel';
+import { FormResponsesPanel } from './components/FormResponsesPanel';
 import { apiRequest } from './lib/api';
 import { badgeClass, formatDueText, normalizeTeam, teamBadgeClass } from './lib/ui';
 import type {
@@ -29,6 +34,11 @@ import type {
   DocumentItem,
   EditEntity,
   EditPanelState,
+  FormAssignment,
+  FormAssignmentDetail,
+  FormResponse,
+  FormTemplateDetail,
+  FormTemplateListItem,
   LookupItem,
   LookupUser,
   Role,
@@ -172,6 +182,21 @@ function App() {
   const [deletingUserSignatureId, setDeletingUserSignatureId] = useState<number | null>(null);
   const [settingDefaultUserSignatureId, setSettingDefaultUserSignatureId] = useState<number | null>(null);
   const [editPanel, setEditPanel] = useState<EditPanelState | null>(null);
+
+  // --- Form Templates state ---
+  const [formTemplates, setFormTemplates] = useState<FormTemplateListItem[]>([]);
+  const [formBuilderOpen, setFormBuilderOpen] = useState(false);
+  const [formBuilderTemplate, setFormBuilderTemplate] = useState<FormTemplateDetail | null>(null);
+  const [formAssignOpen, setFormAssignOpen] = useState(false);
+  const [formAssignTemplate, setFormAssignTemplate] = useState<FormTemplateDetail | null>(null);
+  const [formResponsesAssignment, setFormResponsesAssignment] = useState<FormAssignment | null>(null);
+  const [formResponsesFields, setFormResponsesFields] = useState<FormTemplateDetail['latestFields']>([]);
+  const [templateAssignmentSummary, setTemplateAssignmentSummary] = useState<
+    Record<number, { userTypeIds: number[]; userIds: number[]; assignmentCount: number }>
+  >({});
+  const [userFormAssignments, setUserFormAssignments] = useState<FormAssignment[]>([]);
+  const [activeFillAssignment, setActiveFillAssignment] = useState<FormAssignmentDetail | null>(null);
+  const [activeFillResponse, setActiveFillResponse] = useState<FormResponse | null>(null);
 
   const [theme, setTheme] = useState({
     app: '#f8fafc',
@@ -349,10 +374,10 @@ function App() {
   const nav = useMemo(() => {
     if (!activeUser) return [];
     if (activeUser.role === 'ADMINISTRATOR') {
-      return ['Dashboard', 'Teams', 'Users', 'User Types', 'Schools', 'Documents', 'Reports', 'Settings'];
+      return ['Dashboard', 'Teams', 'Users', 'User Types', 'Schools', 'Documents', 'Templates', 'Categories', 'Reports', 'Settings'];
     }
-    if (activeUser.role === 'TEAM_MANAGER') return ['Dashboard', 'My Team Docs', 'Activity', 'Reports'];
-    return ['Dashboard', 'My Documents', 'Signatures', 'History'];
+    if (activeUser.role === 'TEAM_MANAGER') return ['Dashboard', 'Documents', 'Templates', 'Activity', 'Reports'];
+    return ['Dashboard', 'My Documents', 'My Forms', 'Signatures', 'History'];
   }, [activeUser]);
   const greetingName = useMemo(() => {
     if (!activeUser?.full_name) return 'there';
@@ -633,10 +658,75 @@ function App() {
 
   const isAdminPage = activeUser?.role === 'ADMINISTRATOR' && activePage !== 'Dashboard';
   const isReportsPage = activeUser?.role !== 'USER' && activePage === 'Reports';
-  const isMyTeamDocsPage = activeUser?.role === 'TEAM_MANAGER' && activePage === 'My Team Docs';
+  const isMyTeamDocsPage = activeUser?.role === 'TEAM_MANAGER' && activePage === 'Documents';
   const isUserMyDocumentsPage = activeUser?.role === 'USER' && activePage === 'My Documents';
   const isUserHistoryPage = activeUser?.role === 'USER' && activePage === 'History';
   const isUserSignaturesPage = activeUser?.role === 'USER' && activePage === 'Signatures';
+  const isTemplatesPage =
+    (activeUser?.role === 'ADMINISTRATOR' || activeUser?.role === 'TEAM_MANAGER') &&
+    activePage === 'Templates';
+  const isMyFormsPage = activeUser?.role === 'USER' && activePage === 'My Forms';
+
+  const refreshFormTemplates = async () => {
+    if (!activeUser) return;
+    const [templates, assignments] = await Promise.all([
+      apiRequest<FormTemplateListItem[]>(`/form-templates?actorUserId=${activeUser.id}`),
+      apiRequest<FormAssignment[]>(`/form-assignments?actorUserId=${activeUser.id}`),
+    ]);
+
+    if (templates) setFormTemplates(templates);
+
+    if (!assignments || assignments.length === 0) {
+      setTemplateAssignmentSummary({});
+      return;
+    }
+
+    const details = await Promise.all(
+      assignments.map((a) => apiRequest<FormAssignmentDetail>(`/form-assignments/${a.id}?actorUserId=${activeUser.id}`))
+    );
+
+    const summaryByTemplate = new Map<number, { userTypeIds: Set<number>; userIds: Set<number>; assignmentCount: number }>();
+    details.forEach((d) => {
+      if (!d) return;
+      const current = summaryByTemplate.get(d.template_id) ?? {
+        userTypeIds: new Set<number>(),
+        userIds: new Set<number>(),
+        assignmentCount: 0,
+      };
+      d.userTypeIds.forEach((id) => current.userTypeIds.add(id));
+      d.userIds.forEach((id) => current.userIds.add(id));
+      current.assignmentCount += 1;
+      summaryByTemplate.set(d.template_id, current);
+    });
+
+    const nextSummary: Record<number, { userTypeIds: number[]; userIds: number[]; assignmentCount: number }> = {};
+    summaryByTemplate.forEach((value, templateId) => {
+      nextSummary[templateId] = {
+        userTypeIds: Array.from(value.userTypeIds),
+        userIds: Array.from(value.userIds),
+        assignmentCount: value.assignmentCount,
+      };
+    });
+    setTemplateAssignmentSummary(nextSummary);
+  };
+
+  const refreshUserForms = async () => {
+    if (!activeUser) return;
+    const data = await apiRequest<FormAssignment[]>(
+      `/form-assignments/for-user?userId=${activeUser.id}`
+    );
+    if (data) setUserFormAssignments(data);
+  };
+
+  useEffect(() => {
+    if (isTemplatesPage) void refreshFormTemplates();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTemplatesPage]);
+
+  useEffect(() => {
+    if (isMyFormsPage) void refreshUserForms();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMyFormsPage]);
   const myCompletedDocuments = useMemo(
     () => documents.filter((doc) => doc.status === 'COMPLETED'),
     [documents]
@@ -644,6 +734,14 @@ function App() {
   const teamManagerUsers = useMemo(
     () => users.filter((user) => user.role === 'TEAM_MANAGER'),
     [users]
+  );
+  const userTypeNameById = useMemo(
+    () => new Map(lookups.userTypes.map((ut) => [ut.id, ut.name] as const)),
+    [lookups.userTypes]
+  );
+  const userNameById = useMemo(
+    () => new Map(lookups.users.map((u) => [u.id, u.full_name] as const)),
+    [lookups.users]
   );
   const documentsByUserTypeId = useMemo(() => {
     const docsById = new Map(documents.map((doc) => [doc.id, doc]));
@@ -1592,6 +1690,18 @@ function App() {
                   </section>
                 )}
 
+                {activePage === 'Categories' && (
+                  <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
+                    <div className="mb-3">
+                      <h3 className="text-sm font-semibold uppercase">Categories & Tags</h3>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Manage document categories and tags for better organization.
+                      </p>
+                    </div>
+                    <CategoryTagManager />
+                  </section>
+                )}
+
                 {activePage === 'Settings' && (
                   <section className="space-y-4 rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
                     <div>
@@ -1759,6 +1869,188 @@ function App() {
                 onDelete={deleteUserSignature}
                 onSetDefault={setDefaultUserSignature}
               />
+            ) : isTemplatesPage ? (
+              <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold uppercase">Form Templates</h3>
+                  <button
+                    onClick={() => {
+                      setFormBuilderTemplate(null);
+                      setFormBuilderOpen(true);
+                    }}
+                    className="border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800"
+                  >
+                    + New Template
+                  </button>
+                </div>
+
+                {formTemplates.length === 0 ? (
+                  <div className="rounded-[3px] border border-dashed border-slate-300 p-6 text-center text-xs text-slate-400">
+                    No templates yet. Click "+ New Template" to get started.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {formTemplates.map((tpl) => {
+                      const summary = templateAssignmentSummary[tpl.id];
+                      const assignedUserTypeNames = (summary?.userTypeIds ?? [])
+                        .map((id) => userTypeNameById.get(id))
+                        .filter((name): name is string => Boolean(name));
+                      const assignedUserNames = (summary?.userIds ?? [])
+                        .map((id) => userNameById.get(id))
+                        .filter((name): name is string => Boolean(name));
+
+                      return (
+                      <div
+                        key={tpl.id}
+                        className="flex items-center justify-between rounded-[3px] border border-slate-200 p-3 dark:border-slate-700"
+                      >
+                        <div>
+                          <p className="text-sm font-semibold">{tpl.title}</p>
+                          <p className="text-xs text-slate-500">
+                            v{tpl.version_number} ·{' '}
+                            <span
+                              className={`inline-flex rounded-[3px] px-1 py-0.5 text-xs font-semibold ${
+                                tpl.status === 'published'
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                  : tpl.status === 'draft'
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                  : 'bg-slate-100 text-slate-600 dark:bg-slate-800'
+                              }`}
+                            >
+                              {tpl.status}
+                            </span>
+                            {tpl.updated_at && ` · Updated ${new Date(tpl.updated_at).toLocaleDateString()}`}
+                          </p>
+                          {summary ? (
+                            <>
+                              <p className="mt-1 text-[11px] text-slate-500">
+                                User Types: {assignedUserTypeNames.length ? assignedUserTypeNames.join(', ') : 'None'}
+                              </p>
+                              <p className="text-[11px] text-slate-500">
+                                Users: {assignedUserNames.length ? assignedUserNames.join(', ') : 'None'}
+                              </p>
+                            </>
+                          ) : (
+                            <p className="mt-1 text-[11px] text-slate-400">No assignments yet</p>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={async () => {
+                              const detail = await apiRequest<FormTemplateDetail>(`/form-templates/${tpl.id}?actorUserId=${activeUser!.id}`);
+                              if (detail) { setFormBuilderTemplate(detail); setFormBuilderOpen(true); }
+                            }}
+                            className="border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={async () => {
+                              const detail = await apiRequest<FormTemplateDetail>(`/form-templates/${tpl.id}?actorUserId=${activeUser!.id}`);
+                              if (detail) { setFormAssignTemplate(detail); setFormAssignOpen(true); }
+                            }}
+                            className="border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800"
+                          >
+                            Assign
+                          </button>
+                          <button
+                            onClick={async () => {
+                              const [assignments, detail] = await Promise.all([
+                                apiRequest<FormAssignment[]>(`/form-assignments?actorUserId=${activeUser!.id}&templateId=${tpl.id}`),
+                                apiRequest<FormTemplateDetail>(`/form-templates/${tpl.id}?actorUserId=${activeUser!.id}`),
+                              ]);
+                              if (!assignments || assignments.length === 0) {
+                                updateNotice('No assignments found for this template');
+                                return;
+                              }
+                              // Prefer an assignment that already has responses.
+                              const preferred = assignments.find((a) => (a.response_count ?? 0) > 0) ?? assignments[0];
+                              setFormResponsesAssignment(preferred);
+                              setFormResponsesFields(detail?.latestFields ?? []);
+                            }}
+                              className="border border-purple-200 bg-purple-50 px-2 py-1 text-xs font-semibold text-purple-800 hover:bg-purple-100 dark:border-purple-900 dark:bg-purple-950 dark:text-purple-300"
+                          >
+                            Responses
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (!window.confirm(`Archive template "${tpl.title}"?`)) return;
+                              await apiRequest(`/form-templates/${tpl.id}`, {
+                                method: 'DELETE',
+                                body: JSON.stringify({ actorUserId: activeUser!.id }),
+                              });
+                              await refreshFormTemplates();
+                              updateNotice('Template archived');
+                            }}
+                            className="border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950"
+                          >
+                            Archive
+                          </button>
+                        </div>
+                      </div>
+                    )})}
+                  </div>
+                )}
+              </section>
+            ) : isMyFormsPage ? (
+              <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
+                <div className="mb-3">
+                  <h3 className="text-sm font-semibold uppercase">My Forms</h3>
+                  <p className="text-xs text-slate-500">Forms assigned to you.</p>
+                </div>
+
+                {userFormAssignments.length === 0 ? (
+                  <div className="rounded-[3px] border border-dashed border-slate-300 p-6 text-center text-xs text-slate-400">
+                    No forms assigned to you.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {userFormAssignments.map((asgn) => (
+                      <button
+                        key={asgn.id}
+                        onClick={async () => {
+                          const detail = await apiRequest<FormAssignmentDetail>(
+                            `/form-assignments/${asgn.id}?actorUserId=${activeUser!.id}`
+                          );
+                          const resp = await apiRequest<FormResponse>(
+                            `/form-responses?assignmentId=${asgn.id}&userId=${activeUser!.id}`
+                          );
+                          setActiveFillAssignment(detail ?? null);
+                          setActiveFillResponse(resp ?? null);
+                        }}
+                        className="w-full rounded-[3px] border border-slate-200 p-3 text-left hover:border-slate-400 dark:border-slate-700 dark:hover:border-slate-500"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold">
+                              {asgn.title_override ?? asgn.template_title}
+                            </p>
+                            {asgn.instructions && (
+                              <p className="mt-0.5 text-xs text-slate-500 line-clamp-2">{asgn.instructions}</p>
+                            )}
+                            {asgn.close_at && (
+                              <p className="mt-0.5 text-xs text-slate-500">
+                                Due: {new Date(asgn.close_at).toLocaleDateString()}
+                              </p>
+                            )}
+                          </div>
+                          <span
+                            className={`shrink-0 rounded-[3px] px-1.5 py-0.5 text-xs font-semibold ${
+                              asgn.response_status === 'submitted'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                : asgn.response_status === 'draft'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                : 'bg-slate-100 text-slate-600 dark:bg-slate-800'
+                            }`}
+                          >
+                            {asgn.response_status ?? 'Not started'}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
             ) : isMyTeamDocsPage ? (
               <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
                 <div className="mb-3 flex items-center justify-between">
@@ -2236,6 +2528,62 @@ function App() {
         onSave={saveEditPanel}
         onClose={() => setEditPanel(null)}
       />
+
+      {/* Form panels */}
+      {formBuilderOpen && activeUser && (
+        <FormBuilderPanel
+          templateDetail={formBuilderTemplate}
+          actorUserId={activeUser.id}
+          onClose={() => setFormBuilderOpen(false)}
+          onSaved={async () => {
+            setFormBuilderOpen(false);
+            await refreshFormTemplates();
+            updateNotice('Template saved');
+          }}
+        />
+      )}
+      {formAssignOpen && formAssignTemplate && activeUser && (
+        <FormAssignPanel
+          templateDetail={formAssignTemplate}
+          lookupUserTypes={lookups.userTypes}
+          lookupUsers={lookups.users}
+          actorUserId={activeUser.id}
+          onClose={() => setFormAssignOpen(false)}
+          onSaved={() => {
+            setFormAssignOpen(false);
+            updateNotice('Form assigned');
+          }}
+        />
+      )}
+      {activeFillAssignment && activeUser && (
+        <FormFillPanel
+          assignment={activeFillAssignment}
+          fields={activeFillAssignment.fields}
+          existingResponse={activeFillResponse}
+          currentUserId={activeUser.id}
+          onClose={() => {
+            setActiveFillAssignment(null);
+            setActiveFillResponse(null);
+          }}
+          onSaved={async () => {
+            await refreshUserForms();
+            updateNotice('Form submitted');
+            setActiveFillAssignment(null);
+            setActiveFillResponse(null);
+          }}
+        />
+      )}
+      {formResponsesAssignment && activeUser && (
+        <FormResponsesPanel
+          assignment={formResponsesAssignment}
+          fields={formResponsesFields}
+          actorUserId={activeUser.id}
+          onClose={() => {
+            setFormResponsesAssignment(null);
+            setFormResponsesFields([]);
+          }}
+        />
+      )}
 
 <DocumentDetailsPanel
         docDetails={docDetails}

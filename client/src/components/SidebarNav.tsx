@@ -7,6 +7,7 @@ import {
   Building2,
   Clock,
   File,
+  FileText,
   FolderOpen,
   GraduationCap,
   LayoutGrid,
@@ -33,6 +34,7 @@ const navIconMap: Record<string, ReactNode> = {
   Schools: <GraduationCap size={15} />,
   Users: <User size={15} />,
   Documents: <BookOpen size={15} />,
+  Categories: <Tag size={15} />,
   Reports: <BarChart2 size={15} />,
   Settings: <Settings size={15} />,
   'My Team Docs': <FolderOpen size={15} />,
@@ -41,6 +43,8 @@ const navIconMap: Record<string, ReactNode> = {
   History: <Clock size={15} />,
   Signatures: <Signature size={15} />,
   'School Buildings': <Building2 size={15} />,
+  Templates: <FileText size={15} />,
+  'My Forms': <FileText size={15} />,
 };
 
 const APP_VERSION = '1.0.0';

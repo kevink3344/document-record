@@ -38,7 +38,7 @@ app.use(cors({ origin: (origin, cb) => {
   }
   cb(new Error(`CORS: origin '${origin}' not allowed`));
 }}));
-app.use(express.json());
+  app.use(express.json({ limit: '15mb' }));
 
 // Serve built client in production
 if (process.env.NODE_ENV === 'production') {
@@ -382,6 +382,272 @@ app.put('/api/signatures/:id/default', (req, res) => {
     .get(signature.id);
 
   res.json(updated);
+});
+
+// Categories API
+app.get('/api/categories', (_req, res) => {
+  const db = getDb();
+  const categories = db
+    .prepare('SELECT id, name, color, description, created_at, updated_at FROM categories ORDER BY name')
+    .all();
+  res.json(categories);
+});
+
+app.post('/api/categories', (req, res) => {
+  const db = getDb();
+  const { name, color, description } = req.body as {
+    name?: string;
+    color?: string;
+    description?: string;
+  };
+
+  if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
+
+  try {
+    const result = db
+      .prepare(
+        `INSERT INTO categories (name, color, description, updated_at)
+         VALUES (?, ?, ?, datetime('now'))`
+      )
+      .run(name.trim(), color?.trim() || '#3B82F6', description?.trim() || '');
+
+    const created = db
+      .prepare('SELECT id, name, color, description, created_at, updated_at FROM categories WHERE id = ?')
+      .get(result.lastInsertRowid);
+
+    res.status(201).json(created);
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.put('/api/categories/:id', (req, res) => {
+  const db = getDb();
+  const categoryId = toId(req.params.id);
+  const { name, color, description } = req.body as {
+    name?: string;
+    color?: string;
+    description?: string;
+  };
+
+  if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
+
+  try {
+    const result = db
+      .prepare(
+        `UPDATE categories
+         SET name = ?, color = ?, description = ?, updated_at = datetime('now')
+         WHERE id = ?`
+      )
+      .run(name.trim(), color?.trim() || '#3B82F6', description?.trim() || '', categoryId);
+
+    if (result.changes === 0) return res.status(404).json({ error: 'Category not found' });
+
+    const updated = db
+      .prepare('SELECT id, name, color, description, created_at, updated_at FROM categories WHERE id = ?')
+      .get(categoryId);
+
+    res.json(updated);
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.delete('/api/categories/:id', (req, res) => {
+  const db = getDb();
+  const categoryId = toId(req.params.id);
+
+  try {
+    const result = db.prepare('DELETE FROM categories WHERE id = ?').run(categoryId);
+    if (result.changes === 0) return res.status(404).json({ error: 'Category not found' });
+    res.status(204).send();
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+// Tags API
+app.get('/api/tags', (_req, res) => {
+  const db = getDb();
+  const tags = db
+    .prepare('SELECT id, name, color, description, created_at, updated_at FROM tags ORDER BY name')
+    .all();
+  res.json(tags);
+});
+
+app.post('/api/tags', (req, res) => {
+  const db = getDb();
+  const { name, color, description } = req.body as {
+    name?: string;
+    color?: string;
+    description?: string;
+  };
+
+  if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
+
+  try {
+    const result = db
+      .prepare(
+        `INSERT INTO tags (name, color, description, updated_at)
+         VALUES (?, ?, ?, datetime('now'))`
+      )
+      .run(name.trim(), color?.trim() || '#10B981', description?.trim() || '');
+
+    const created = db
+      .prepare('SELECT id, name, color, description, created_at, updated_at FROM tags WHERE id = ?')
+      .get(result.lastInsertRowid);
+
+    res.status(201).json(created);
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.put('/api/tags/:id', (req, res) => {
+  const db = getDb();
+  const tagId = toId(req.params.id);
+  const { name, color, description } = req.body as {
+    name?: string;
+    color?: string;
+    description?: string;
+  };
+
+  if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
+
+  try {
+    const result = db
+      .prepare(
+        `UPDATE tags
+         SET name = ?, color = ?, description = ?, updated_at = datetime('now')
+         WHERE id = ?`
+      )
+      .run(name.trim(), color?.trim() || '#10B981', description?.trim() || '', tagId);
+
+    if (result.changes === 0) return res.status(404).json({ error: 'Tag not found' });
+
+    const updated = db
+      .prepare('SELECT id, name, color, description, created_at, updated_at FROM tags WHERE id = ?')
+      .get(tagId);
+
+    res.json(updated);
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.delete('/api/tags/:id', (req, res) => {
+  const db = getDb();
+  const tagId = toId(req.params.id);
+
+  try {
+    const result = db.prepare('DELETE FROM tags WHERE id = ?').run(tagId);
+    if (result.changes === 0) return res.status(404).json({ error: 'Tag not found' });
+    res.status(204).send();
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+// Document Category/Tag Management
+app.get('/api/documents/:id/categories', (req, res) => {
+  const db = getDb();
+  const documentId = toId(req.params.id);
+
+  const categories = db
+    .prepare(
+      `SELECT c.id, c.name, c.color, c.description, dc.assigned_at
+       FROM categories c
+       JOIN document_categories dc ON c.id = dc.category_id
+       WHERE dc.document_id = ?
+       ORDER BY c.name`
+    )
+    .all(documentId);
+
+  res.json(categories);
+});
+
+app.post('/api/documents/:id/categories', (req, res) => {
+  const db = getDb();
+  const documentId = toId(req.params.id);
+  const { categoryId } = req.body as { categoryId?: number };
+
+  if (!categoryId) return res.status(400).json({ error: 'categoryId is required' });
+
+  try {
+    db.prepare('INSERT INTO document_categories (document_id, category_id) VALUES (?, ?)').run(
+      documentId,
+      categoryId
+    );
+    res.status(201).json({ success: true });
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.delete('/api/documents/:documentId/categories/:categoryId', (req, res) => {
+  const db = getDb();
+  const documentId = toId(req.params.documentId);
+  const categoryId = toId(req.params.categoryId);
+
+  try {
+    const result = db
+      .prepare('DELETE FROM document_categories WHERE document_id = ? AND category_id = ?')
+      .run(documentId, categoryId);
+
+    if (result.changes === 0) return res.status(404).json({ error: 'Document category association not found' });
+    res.status(204).send();
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.get('/api/documents/:id/tags', (req, res) => {
+  const db = getDb();
+  const documentId = toId(req.params.id);
+
+  const tags = db
+    .prepare(
+      `SELECT t.id, t.name, t.color, t.description, dt.assigned_at
+       FROM tags t
+       JOIN document_tags dt ON t.id = dt.tag_id
+       WHERE dt.document_id = ?
+       ORDER BY t.name`
+    )
+    .all(documentId);
+
+  res.json(tags);
+});
+
+app.post('/api/documents/:id/tags', (req, res) => {
+  const db = getDb();
+  const documentId = toId(req.params.id);
+  const { tagId } = req.body as { tagId?: number };
+
+  if (!tagId) return res.status(400).json({ error: 'tagId is required' });
+
+  try {
+    db.prepare('INSERT INTO document_tags (document_id, tag_id) VALUES (?, ?)').run(documentId, tagId);
+    res.status(201).json({ success: true });
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.delete('/api/documents/:documentId/tags/:tagId', (req, res) => {
+  const db = getDb();
+  const documentId = toId(req.params.documentId);
+  const tagId = toId(req.params.tagId);
+
+  try {
+    const result = db
+      .prepare('DELETE FROM document_tags WHERE document_id = ? AND tag_id = ?')
+      .run(documentId, tagId);
+
+    if (result.changes === 0) return res.status(404).json({ error: 'Document tag association not found' });
+    res.status(204).send();
+  } catch (error) {
+    sendSqlError(res, error);
+  }
 });
 
 app.get('/api/lookups', (_req, res) => {
@@ -1703,6 +1969,639 @@ app.get('/api/reports/compliance', (req, res) => {
     .filter((row) => (status ? row.completion_status === status : true));
 
   res.json(rows);
+});
+
+// ─── Form Templates ───────────────────────────────────────────────────────────
+
+app.get('/api/form-templates', (req, res) => {
+  const db = getDb();
+  const actorUserId = req.query.actorUserId ? toId(String(req.query.actorUserId)) : 0;
+  if (!actorUserId) return res.status(400).json({ error: 'actorUserId is required' });
+
+  const actor = db.prepare('SELECT id, role FROM users WHERE id = ?').get(actorUserId) as { id: number; role: string } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor not found' });
+  if (actor.role !== 'ADMINISTRATOR' && actor.role !== 'TEAM_MANAGER') {
+    return res.status(403).json({ error: 'Only Administrators and Team Managers can view templates' });
+  }
+
+  const rows = db.prepare(`
+    SELECT ft.id, ft.created_by_user_id, ft.is_active, ft.created_at, ft.updated_at,
+           u.full_name AS created_by_name,
+           ftv.id AS latest_version_id, ftv.version_number, ftv.title,
+           ftv.description, ftv.status, ftv.created_at AS version_created_at
+    FROM form_templates ft
+    LEFT JOIN users u ON u.id = ft.created_by_user_id
+    LEFT JOIN form_template_versions ftv ON ftv.id = (
+      SELECT id FROM form_template_versions
+      WHERE template_id = ft.id
+      ORDER BY version_number DESC LIMIT 1
+    )
+    WHERE ft.is_active = 1
+    ORDER BY ft.updated_at DESC
+  `).all();
+
+  res.json(rows);
+});
+
+app.post('/api/form-templates', (req, res) => {
+  const db = getDb();
+  const { actorUserId, title, description, status, fields } = req.body as {
+    actorUserId: number;
+    title: string;
+    description?: string;
+    status?: string;
+    fields?: Array<{
+      field_key: string;
+      label: string;
+      help_text?: string;
+      field_type: string;
+      is_required?: number;
+      sort_order?: number;
+      config_json?: string;
+    }>;
+  };
+
+  if (!actorUserId) return res.status(400).json({ error: 'actorUserId is required' });
+  if (!title?.trim()) return res.status(400).json({ error: 'title is required' });
+
+  const actor = db.prepare('SELECT id, role FROM users WHERE id = ?').get(actorUserId) as { id: number; role: string } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor not found' });
+  if (actor.role !== 'ADMINISTRATOR' && actor.role !== 'TEAM_MANAGER') {
+    return res.status(403).json({ error: 'Only Administrators and Team Managers can create templates' });
+  }
+
+  try {
+    const templateResult = db.prepare(
+      `INSERT INTO form_templates (created_by_user_id, updated_at) VALUES (?, datetime('now'))`
+    ).run(actorUserId);
+    const templateId = Number(templateResult.lastInsertRowid);
+
+    const versionResult = db.prepare(
+      `INSERT INTO form_template_versions (template_id, version_number, title, description, status, created_by_user_id)
+       VALUES (?, 1, ?, ?, ?, ?)`
+    ).run(templateId, title.trim(), description ?? '', status ?? 'draft', actorUserId);
+    const versionId = Number(versionResult.lastInsertRowid);
+
+    if (Array.isArray(fields) && fields.length > 0) {
+      const insertField = db.prepare(
+        `INSERT INTO form_template_fields (template_version_id, field_key, label, help_text, field_type, is_required, sort_order, config_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      fields.forEach((f, i) => {
+        insertField.run(versionId, f.field_key || `field_${i + 1}`, f.label, f.help_text ?? '', f.field_type, f.is_required ?? 0, f.sort_order ?? i, f.config_json ?? '{}');
+      });
+    }
+
+    db.prepare(
+      `INSERT INTO activity_feed (entity_type, entity_id, message, actor_user_id) VALUES ('FORM_TEMPLATE', ?, ?, ?)`
+    ).run(templateId, `Form template "${title.trim()}" created (v1).`, actorUserId);
+
+    db.prepare(`UPDATE form_templates SET updated_at = datetime('now') WHERE id = ?`).run(templateId);
+
+    res.status(201).json({ id: templateId, versionId });
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.get('/api/form-templates/:id', (req, res) => {
+  const db = getDb();
+  const id = toId(req.params.id);
+  const actorUserId = req.query.actorUserId ? toId(String(req.query.actorUserId)) : 0;
+
+  if (!actorUserId) return res.status(400).json({ error: 'actorUserId is required' });
+
+  const actor = db.prepare('SELECT id, role FROM users WHERE id = ?').get(actorUserId) as { id: number; role: string } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor not found' });
+  if (actor.role !== 'ADMINISTRATOR' && actor.role !== 'TEAM_MANAGER') {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  const template = db.prepare(`
+    SELECT ft.*, u.full_name AS created_by_name
+    FROM form_templates ft
+    LEFT JOIN users u ON u.id = ft.created_by_user_id
+    WHERE ft.id = ?
+  `).get(id) as Record<string, unknown> | undefined;
+
+  if (!template) return res.status(404).json({ error: 'Template not found' });
+
+  const versions = db.prepare(`
+    SELECT ftv.*, u.full_name AS created_by_name
+    FROM form_template_versions ftv
+    LEFT JOIN users u ON u.id = ftv.created_by_user_id
+    WHERE ftv.template_id = ?
+    ORDER BY ftv.version_number DESC
+  `).all(id);
+
+  const latestVersionId = versions.length > 0 ? (versions[0] as Record<string, unknown>).id : null;
+  const latestFields = latestVersionId
+    ? db.prepare('SELECT * FROM form_template_fields WHERE template_version_id = ? ORDER BY sort_order ASC').all(latestVersionId)
+    : [];
+
+  res.json({ ...template, versions, latestFields });
+});
+
+app.put('/api/form-templates/:id', (req, res) => {
+  const db = getDb();
+  const templateId = toId(req.params.id);
+  const { actorUserId, title, description, status } = req.body as {
+    actorUserId?: number;
+    title?: string;
+    description?: string;
+    status?: string;
+  };
+
+  if (!actorUserId) return res.status(400).json({ error: 'actorUserId is required' });
+  if (!title?.trim()) return res.status(400).json({ error: 'title is required' });
+  if (status && !['draft', 'published', 'archived'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+
+  const actor = db.prepare('SELECT id, role FROM users WHERE id = ?').get(actorUserId) as { id: number; role: string } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor not found' });
+  if (actor.role !== 'ADMINISTRATOR' && actor.role !== 'TEAM_MANAGER') {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  const template = db.prepare('SELECT id FROM form_templates WHERE id = ? AND is_active = 1').get(templateId);
+  if (!template) return res.status(404).json({ error: 'Template not found' });
+
+  const latestVersion = db.prepare(`
+    SELECT id, version_number
+    FROM form_template_versions
+    WHERE template_id = ?
+    ORDER BY version_number DESC
+    LIMIT 1
+  `).get(templateId) as { id: number; version_number: number } | undefined;
+  if (!latestVersion) return res.status(404).json({ error: 'Template version not found' });
+
+  try {
+    db.prepare(`
+      UPDATE form_template_versions
+      SET title = ?,
+          description = ?,
+          status = ?
+      WHERE id = ?
+    `).run(title.trim(), description ?? '', status ?? 'draft', latestVersion.id);
+
+    db.prepare(`UPDATE form_templates SET updated_at = datetime('now') WHERE id = ?`).run(templateId);
+    db.prepare(
+      `INSERT INTO activity_feed (entity_type, entity_id, message, actor_user_id) VALUES ('FORM_TEMPLATE', ?, ?, ?)`
+    ).run(templateId, `Form template metadata updated in v${latestVersion.version_number}.`, actorUserId);
+
+    res.json({ success: true, versionId: latestVersion.id, versionNumber: latestVersion.version_number });
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.post('/api/form-templates/:id/versions', (req, res) => {
+  const db = getDb();
+  const templateId = toId(req.params.id);
+  const { actorUserId, title, description, status, fields } = req.body as {
+    actorUserId: number;
+    title: string;
+    description?: string;
+    status?: string;
+    fields?: Array<{
+      field_key: string;
+      label: string;
+      help_text?: string;
+      field_type: string;
+      is_required?: number;
+      sort_order?: number;
+      config_json?: string;
+    }>;
+  };
+
+  if (!actorUserId) return res.status(400).json({ error: 'actorUserId is required' });
+  if (!title?.trim()) return res.status(400).json({ error: 'title is required' });
+
+  const actor = db.prepare('SELECT id, role FROM users WHERE id = ?').get(actorUserId) as { id: number; role: string } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor not found' });
+  if (actor.role !== 'ADMINISTRATOR' && actor.role !== 'TEAM_MANAGER') {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  const template = db.prepare('SELECT id FROM form_templates WHERE id = ? AND is_active = 1').get(templateId);
+  if (!template) return res.status(404).json({ error: 'Template not found' });
+
+  try {
+    const maxRow = db.prepare('SELECT MAX(version_number) AS max_v FROM form_template_versions WHERE template_id = ?').get(templateId) as { max_v: number };
+    const nextVersion = (maxRow.max_v ?? 0) + 1;
+
+    const versionResult = db.prepare(
+      `INSERT INTO form_template_versions (template_id, version_number, title, description, status, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(templateId, nextVersion, title.trim(), description ?? '', status ?? 'draft', actorUserId);
+    const versionId = Number(versionResult.lastInsertRowid);
+
+    if (Array.isArray(fields) && fields.length > 0) {
+      const insertField = db.prepare(
+        `INSERT INTO form_template_fields (template_version_id, field_key, label, help_text, field_type, is_required, sort_order, config_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      fields.forEach((f, i) => {
+        insertField.run(versionId, f.field_key || `field_${i + 1}`, f.label, f.help_text ?? '', f.field_type, f.is_required ?? 0, f.sort_order ?? i, f.config_json ?? '{}');
+      });
+    }
+
+    db.prepare(`UPDATE form_templates SET updated_at = datetime('now') WHERE id = ?`).run(templateId);
+    db.prepare(
+      `INSERT INTO activity_feed (entity_type, entity_id, message, actor_user_id) VALUES ('FORM_TEMPLATE', ?, ?, ?)`
+    ).run(templateId, `Form template updated — v${nextVersion} created by ${actor.id}.`, actorUserId);
+
+    res.status(201).json({ versionId, versionNumber: nextVersion });
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.delete('/api/form-templates/:id', (req, res) => {
+  const db = getDb();
+  const id = toId(req.params.id);
+  const { actorUserId } = req.body as { actorUserId?: number };
+  if (!actorUserId) return res.status(400).json({ error: 'actorUserId is required' });
+
+  const actor = db.prepare('SELECT id, role FROM users WHERE id = ?').get(actorUserId) as { id: number; role: string } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor not found' });
+  if (actor.role !== 'ADMINISTRATOR' && actor.role !== 'TEAM_MANAGER') {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  db.prepare(`UPDATE form_templates SET is_active = 0, updated_at = datetime('now') WHERE id = ?`).run(id);
+  res.json({ success: true });
+});
+
+// ─── Form Assignments ────────────────────────────────────────────────────────
+
+app.post('/api/form-assignments', (req, res) => {
+  const db = getDb();
+  const { actorUserId, templateId, templateVersionId, titleOverride, instructions, openAt, closeAt, userTypeIds, userIds } = req.body as {
+    actorUserId: number;
+    templateId: number;
+    templateVersionId: number;
+    titleOverride?: string;
+    instructions?: string;
+    openAt?: string;
+    closeAt?: string;
+    userTypeIds?: number[];
+    userIds?: number[];
+  };
+
+  if (!actorUserId) return res.status(400).json({ error: 'actorUserId is required' });
+  if (!templateId || !templateVersionId) return res.status(400).json({ error: 'templateId and templateVersionId are required' });
+
+  const actor = db.prepare('SELECT id, role FROM users WHERE id = ?').get(actorUserId) as { id: number; role: string } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor not found' });
+  if (actor.role !== 'ADMINISTRATOR' && actor.role !== 'TEAM_MANAGER') {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  const version = db.prepare('SELECT id, title FROM form_template_versions WHERE id = ? AND template_id = ?').get(templateVersionId, templateId) as { id: number; title: string } | undefined;
+  if (!version) return res.status(404).json({ error: 'Template version not found' });
+
+  try {
+    const result = db.prepare(
+      `INSERT INTO form_assignments (template_id, template_version_id, assigned_by_user_id, title_override, instructions, open_at, close_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(templateId, templateVersionId, actorUserId, titleOverride?.trim() || null, instructions ?? '', openAt || null, closeAt || null);
+    const assignmentId = Number(result.lastInsertRowid);
+
+    const normalizedUserTypeIds = Array.isArray(userTypeIds)
+      ? [...new Set(userTypeIds.map(Number).filter((n) => n > 0))]
+      : [];
+    const normalizedUserIds = Array.isArray(userIds)
+      ? [...new Set(userIds.map(Number).filter((n) => n > 0))]
+      : [];
+
+    const insertUt = db.prepare('INSERT OR IGNORE INTO form_assignment_user_types (assignment_id, user_type_id) VALUES (?, ?)');
+    normalizedUserTypeIds.forEach((utId) => insertUt.run(assignmentId, utId));
+
+    const insertU = db.prepare('INSERT OR IGNORE INTO form_assignment_users (assignment_id, user_id) VALUES (?, ?)');
+    normalizedUserIds.forEach((uId) => insertU.run(assignmentId, uId));
+
+    db.prepare(
+      `INSERT INTO activity_feed (entity_type, entity_id, message, actor_user_id) VALUES ('FORM_ASSIGNMENT', ?, ?, ?)`
+    ).run(assignmentId, `Form "${version.title}" assigned to ${normalizedUserTypeIds.length} user type(s) and ${normalizedUserIds.length} user(s).`, actorUserId);
+
+    res.status(201).json({ id: assignmentId });
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.get('/api/form-assignments', (req, res) => {
+  const db = getDb();
+  const actorUserId = req.query.actorUserId ? toId(String(req.query.actorUserId)) : 0;
+  if (!actorUserId) return res.status(400).json({ error: 'actorUserId is required' });
+
+  const actor = db.prepare('SELECT id, role FROM users WHERE id = ?').get(actorUserId) as { id: number; role: string } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor not found' });
+  if (actor.role !== 'ADMINISTRATOR' && actor.role !== 'TEAM_MANAGER') {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  const templateIdFilter = req.query.templateId ? toId(String(req.query.templateId)) : 0;
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  if (actor.role !== 'ADMINISTRATOR') { conditions.push('fa.assigned_by_user_id = ?'); params.push(actorUserId); }
+  if (templateIdFilter) { conditions.push('fa.template_id = ?'); params.push(templateIdFilter); }
+  const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const rows = db.prepare(`
+    SELECT fa.id, fa.template_id, fa.template_version_id, fa.assigned_by_user_id, fa.title_override,
+           fa.instructions, fa.open_at, fa.close_at, fa.created_at,
+           u.full_name AS assigned_by_name,
+           ftv.title AS template_title, ftv.version_number,
+           (SELECT COUNT(*) FROM form_responses fr WHERE fr.assignment_id = fa.id) AS response_count,
+           (SELECT COUNT(*) FROM form_responses fr WHERE fr.assignment_id = fa.id AND fr.status = 'submitted') AS submitted_count
+    FROM form_assignments fa
+    LEFT JOIN users u ON u.id = fa.assigned_by_user_id
+    LEFT JOIN form_template_versions ftv ON ftv.id = fa.template_version_id
+    ${whereClause}
+    ORDER BY fa.created_at DESC
+  `).all(...params);
+
+  res.json(rows);
+});
+
+app.get('/api/form-assignments/for-user', (req, res) => {
+  const db = getDb();
+  const userId = req.query.userId ? toId(String(req.query.userId)) : 0;
+  if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+  const user = db.prepare('SELECT id, user_type_id FROM users WHERE id = ? AND is_active = 1').get(userId) as { id: number; user_type_id: number | null } | undefined;
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const rows = db.prepare(`
+    SELECT DISTINCT fa.id, fa.template_id, fa.template_version_id, fa.assigned_by_user_id,
+           fa.title_override, fa.instructions, fa.open_at, fa.close_at, fa.created_at,
+           ftv.title AS template_title, ftv.version_number, ftv.description,
+           fr.id AS response_id, fr.status AS response_status,
+           fr.first_submitted_at, fr.last_submitted_at, fr.last_edited_at
+    FROM form_assignments fa
+    INNER JOIN form_template_versions ftv ON ftv.id = fa.template_version_id
+    LEFT JOIN form_responses fr ON fr.assignment_id = fa.id AND fr.user_id = ?
+    WHERE fa.id IN (
+      SELECT assignment_id FROM form_assignment_users WHERE user_id = ?
+      UNION
+      SELECT assignment_id FROM form_assignment_user_types WHERE user_type_id = ?
+    )
+    ORDER BY fa.created_at DESC
+  `).all(userId, userId, user.user_type_id ?? -1);
+
+  res.json(rows);
+});
+
+app.get('/api/form-assignments/:id', (req, res) => {
+  const db = getDb();
+  const id = toId(req.params.id);
+  const actorUserId = req.query.actorUserId ? toId(String(req.query.actorUserId)) : 0;
+
+  const assignment = db.prepare(`
+    SELECT fa.*, ftv.title AS template_title, ftv.version_number, ftv.description AS template_description,
+           u.full_name AS assigned_by_name
+    FROM form_assignments fa
+    INNER JOIN form_template_versions ftv ON ftv.id = fa.template_version_id
+    LEFT JOIN users u ON u.id = fa.assigned_by_user_id
+    WHERE fa.id = ?
+  `).get(id) as Record<string, unknown> | undefined;
+
+  if (!assignment) return res.status(404).json({ error: 'Assignment not found' });
+
+  const fields = db.prepare(
+    'SELECT * FROM form_template_fields WHERE template_version_id = ? ORDER BY sort_order ASC'
+  ).all(assignment.template_version_id as number);
+
+  const userTypeIds = (db.prepare('SELECT user_type_id FROM form_assignment_user_types WHERE assignment_id = ?').all(id) as Array<{ user_type_id: number }>).map((r) => r.user_type_id);
+  const userIds = (db.prepare('SELECT user_id FROM form_assignment_users WHERE assignment_id = ?').all(id) as Array<{ user_id: number }>).map((r) => r.user_id);
+
+  let userResponse: Record<string, unknown> | null = null;
+  if (actorUserId) {
+    userResponse = db.prepare('SELECT * FROM form_responses WHERE assignment_id = ? AND user_id = ?').get(id, actorUserId) as Record<string, unknown> | null ?? null;
+  }
+
+  res.json({ ...assignment, fields, userTypeIds, userIds, userResponse });
+});
+
+// ─── Form Responses ──────────────────────────────────────────────────────────
+
+app.get('/api/form-responses', (req, res) => {
+  const db = getDb();
+  const assignmentId = req.query.assignmentId ? toId(String(req.query.assignmentId)) : 0;
+  const userId = req.query.userId ? toId(String(req.query.userId)) : 0;
+
+  if (!assignmentId || !userId) return res.status(400).json({ error: 'assignmentId and userId are required' });
+
+  const response = db.prepare(`
+    SELECT fr.*, u.full_name AS user_name
+    FROM form_responses fr
+    LEFT JOIN users u ON u.id = fr.user_id
+    WHERE fr.assignment_id = ? AND fr.user_id = ?
+  `).get(assignmentId, userId) as Record<string, unknown> | undefined;
+
+  if (!response) return res.json(null);
+
+  const answers = db.prepare('SELECT * FROM form_response_answers WHERE response_id = ?').all(response.id as number);
+  const revisions = db.prepare(`
+    SELECT frr.*, u.full_name AS edited_by_name
+    FROM form_response_revisions frr
+    LEFT JOIN users u ON u.id = frr.edited_by_user_id
+    WHERE frr.response_id = ?
+    ORDER BY frr.revision_number ASC
+  `).all(response.id as number);
+
+  res.json({ ...response, answers, revisions });
+});
+
+app.get('/api/form-responses/assignment/:assignmentId', (req, res) => {
+  const db = getDb();
+  const assignmentId = toId(req.params.assignmentId);
+  const actorUserId = req.query.actorUserId ? toId(String(req.query.actorUserId)) : 0;
+
+  if (!actorUserId) return res.status(400).json({ error: 'actorUserId is required' });
+
+  const actor = db.prepare('SELECT id, role FROM users WHERE id = ?').get(actorUserId) as { id: number; role: string } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor not found' });
+
+  const assignment = db.prepare('SELECT * FROM form_assignments WHERE id = ?').get(assignmentId) as { assigned_by_user_id: number } | undefined;
+  if (!assignment) return res.status(404).json({ error: 'Assignment not found' });
+
+  if (actor.role !== 'ADMINISTRATOR' && actor.id !== assignment.assigned_by_user_id) {
+    return res.status(403).json({ error: 'Not authorized to view responses for this assignment' });
+  }
+
+  const rows = db.prepare(`
+    SELECT fr.*, u.full_name AS user_name, s.name AS school_name, ut.name AS user_type_name
+    FROM form_responses fr
+    LEFT JOIN users u ON u.id = fr.user_id
+    LEFT JOIN schools s ON s.id = u.school_id
+    LEFT JOIN user_types ut ON ut.id = u.user_type_id
+    WHERE fr.assignment_id = ?
+    ORDER BY fr.last_submitted_at DESC, fr.created_at DESC
+  `).all(assignmentId);
+
+  res.json(rows);
+});
+
+app.get('/api/form-responses/:id', (req, res) => {
+  const db = getDb();
+  const responseId = toId(req.params.id);
+  const actorUserId = req.query.actorUserId ? toId(String(req.query.actorUserId)) : 0;
+
+  const response = db.prepare(`
+    SELECT fr.*, u.full_name AS user_name
+    FROM form_responses fr
+    LEFT JOIN users u ON u.id = fr.user_id
+    WHERE fr.id = ?
+  `).get(responseId) as Record<string, unknown> | undefined;
+
+  if (!response) return res.status(404).json({ error: 'Response not found' });
+
+  if (actorUserId) {
+    const actor = db.prepare('SELECT id, role FROM users WHERE id = ?').get(actorUserId) as { id: number; role: string } | undefined;
+    if (actor && actor.role !== 'ADMINISTRATOR' && actor.id !== (response.user_id as number)) {
+      const assignment = db.prepare('SELECT assigned_by_user_id FROM form_assignments WHERE id = ?').get(response.assignment_id as number) as { assigned_by_user_id: number } | undefined;
+      if (!assignment || assignment.assigned_by_user_id !== actor.id) {
+        return res.status(403).json({ error: 'Not authorized' });
+      }
+    }
+  }
+
+  const answers = db.prepare('SELECT * FROM form_response_answers WHERE response_id = ?').all(responseId);
+  const revisions = db.prepare(`
+    SELECT frr.*, u.full_name AS edited_by_name
+    FROM form_response_revisions frr
+    LEFT JOIN users u ON u.id = frr.edited_by_user_id
+    WHERE frr.response_id = ?
+    ORDER BY frr.revision_number ASC
+  `).all(responseId);
+
+  res.json({ ...response, answers, revisions });
+});
+
+app.post('/api/form-responses', (req, res) => {
+  const db = getDb();
+  const { actorUserId, assignmentId, userId, answers, submit } = req.body as {
+    actorUserId: number;
+    assignmentId: number;
+    userId: number;
+    answers?: Array<{ fieldId: number; valueText: string; valueJson?: string }>;
+    submit?: boolean;
+  };
+
+  if (!actorUserId || !assignmentId || !userId) {
+    return res.status(400).json({ error: 'actorUserId, assignmentId, and userId are required' });
+  }
+
+  const actor = db.prepare('SELECT id, role FROM users WHERE id = ?').get(actorUserId) as { id: number; role: string } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor not found' });
+  if (actor.role !== 'USER' && actor.id !== userId) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  const assignment = db.prepare(`
+    SELECT fa.id, fa.template_id, fa.template_version_id, fa.assigned_by_user_id
+    FROM form_assignments fa WHERE fa.id = ?
+  `).get(assignmentId) as { id: number; template_id: number; template_version_id: number; assigned_by_user_id: number } | undefined;
+
+  if (!assignment) return res.status(404).json({ error: 'Assignment not found' });
+
+  const existing = db.prepare('SELECT id FROM form_responses WHERE assignment_id = ? AND user_id = ?').get(assignmentId, userId);
+  if (existing) return res.status(409).json({ error: 'Response already exists. Use PUT to update.' });
+
+  try {
+    const now = `datetime('now')`;
+    const submitFields = submit
+      ? `, 'submitted', ${now}, ${now}`
+      : `, 'draft', NULL, NULL`;
+
+    const result = db.prepare(`
+      INSERT INTO form_responses
+        (assignment_id, template_id, template_version_id, user_id, status, first_submitted_at, last_submitted_at, submitted_to_user_id, updated_at)
+      VALUES (?, ?, ?, ?, ${submit ? "'submitted'" : "'draft'"}, ${submit ? "datetime('now')" : 'NULL'}, ${submit ? "datetime('now')" : 'NULL'}, ?, datetime('now'))
+    `).run(assignmentId, assignment.template_id, assignment.template_version_id, userId, assignment.assigned_by_user_id);
+
+    const responseId = Number(result.lastInsertRowid);
+
+    if (Array.isArray(answers) && answers.length > 0) {
+      const insertAnswer = db.prepare(
+        'INSERT INTO form_response_answers (response_id, field_id, value_text, value_json) VALUES (?, ?, ?, ?)'
+      );
+      answers.forEach((a) => insertAnswer.run(responseId, a.fieldId, a.valueText ?? '', a.valueJson ?? null));
+    }
+
+    if (submit) {
+      db.prepare(
+        `INSERT INTO activity_feed (entity_type, entity_id, message, actor_user_id) VALUES ('FORM_RESPONSE', ?, ?, ?)`
+      ).run(responseId, `Form response submitted by user ${userId}.`, actorUserId);
+    }
+
+    res.status(201).json({ id: responseId });
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
+app.put('/api/form-responses/:id', (req, res) => {
+  const db = getDb();
+  const responseId = toId(req.params.id);
+  const { actorUserId, answers, changeSummary, submit } = req.body as {
+    actorUserId: number;
+    answers?: Array<{ fieldId: number; valueText: string; valueJson?: string }>;
+    changeSummary?: string;
+    submit?: boolean;
+  };
+
+  if (!actorUserId) return res.status(400).json({ error: 'actorUserId is required' });
+
+  const response = db.prepare('SELECT * FROM form_responses WHERE id = ?').get(responseId) as Record<string, unknown> | undefined;
+  if (!response) return res.status(404).json({ error: 'Response not found' });
+
+  const actor = db.prepare('SELECT id, role FROM users WHERE id = ?').get(actorUserId) as { id: number; role: string } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor not found' });
+  if (actor.id !== (response.user_id as number)) {
+    return res.status(403).json({ error: 'Only the response owner can edit it' });
+  }
+
+  try {
+    const maxRevRow = db.prepare('SELECT MAX(revision_number) AS max_r FROM form_response_revisions WHERE response_id = ?').get(responseId) as { max_r: number };
+    const nextRevision = (maxRevRow.max_r ?? 0) + 1;
+
+    const oldAnswers = db.prepare('SELECT * FROM form_response_answers WHERE response_id = ?').all(responseId);
+    db.prepare('INSERT INTO form_response_revisions (response_id, edited_by_user_id, revision_number, change_summary, snapshot_json) VALUES (?, ?, ?, ?, ?)').run(
+      responseId, actorUserId, nextRevision, changeSummary ?? '', JSON.stringify(oldAnswers)
+    );
+
+    db.prepare('DELETE FROM form_response_answers WHERE response_id = ?').run(responseId);
+
+    if (Array.isArray(answers) && answers.length > 0) {
+      const insertAnswer = db.prepare(
+        'INSERT INTO form_response_answers (response_id, field_id, value_text, value_json) VALUES (?, ?, ?, ?)'
+      );
+      answers.forEach((a) => insertAnswer.run(responseId, a.fieldId, a.valueText ?? '', a.valueJson ?? null));
+    }
+
+    db.prepare(`
+      UPDATE form_responses
+      SET last_edited_at = datetime('now'),
+          last_submitted_at = CASE WHEN ? = 1 THEN datetime('now') ELSE last_submitted_at END,
+          status = CASE WHEN ? = 1 THEN 'submitted' ELSE status END,
+          first_submitted_at = CASE WHEN first_submitted_at IS NULL AND ? = 1 THEN datetime('now') ELSE first_submitted_at END,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).run(submit ? 1 : 0, submit ? 1 : 0, submit ? 1 : 0, responseId);
+
+    db.prepare(
+      `INSERT INTO activity_feed (entity_type, entity_id, message, actor_user_id) VALUES ('FORM_RESPONSE', ?, ?, ?)`
+    ).run(responseId, `Form response updated (revision ${nextRevision}).`, actorUserId);
+
+    res.json({ id: responseId, revisionNumber: nextRevision });
+  } catch (error) {
+    sendSqlError(res, error);
+  }
 });
 
 app.listen(PORT, () => {

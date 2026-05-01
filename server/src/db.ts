@@ -17,6 +17,7 @@ export function getDb(): Database.Database {
     ensureAcknowledgmentSignatureColumns();
     ensureUserSignatureColumns();
     ensureAppSettingsDefaults();
+    ensureFormTables();
     seedDatabaseAtStartupIfEnabled();
     syncTeamManagersFromLegacy();
   }
@@ -279,6 +280,42 @@ function initSchema(): void {
       UNIQUE(user_id, name),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      color TEXT NOT NULL DEFAULT '#3B82F6',
+      description TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS tags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      color TEXT NOT NULL DEFAULT '#10B981',
+      description TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS document_categories (
+      document_id INTEGER NOT NULL,
+      category_id INTEGER NOT NULL,
+      assigned_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (document_id, category_id),
+      FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+      FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS document_tags (
+      document_id INTEGER NOT NULL,
+      tag_id INTEGER NOT NULL,
+      assigned_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (document_id, tag_id),
+      FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+      FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+    );
   `);
 }
 
@@ -332,6 +369,165 @@ function ensureUserSignatureColumns(): void {
 
   if (!hasIsDefault) {
     db.exec("ALTER TABLE user_signatures ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;");
+  }
+}
+
+function ensureFormTables(): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS form_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_by_user_id INTEGER,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS form_template_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      template_id INTEGER NOT NULL,
+      version_number INTEGER NOT NULL DEFAULT 1,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'archived')),
+      created_by_user_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (template_id, version_number),
+      FOREIGN KEY (template_id) REFERENCES form_templates(id) ON DELETE CASCADE,
+      FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS form_template_fields (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      template_version_id INTEGER NOT NULL,
+      field_key TEXT NOT NULL,
+      label TEXT NOT NULL,
+      help_text TEXT NOT NULL DEFAULT '',
+      field_type TEXT NOT NULL DEFAULT 'short_text'
+        CHECK (field_type IN ('short_text', 'long_text', 'number', 'date', 'single_select', 'multi_select', 'checkbox', 'attachment', 'signature')),
+      is_required INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      config_json TEXT NOT NULL DEFAULT '{}',
+      FOREIGN KEY (template_version_id) REFERENCES form_template_versions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS form_assignments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      template_id INTEGER NOT NULL,
+      template_version_id INTEGER NOT NULL,
+      assigned_by_user_id INTEGER,
+      title_override TEXT,
+      instructions TEXT NOT NULL DEFAULT '',
+      open_at TEXT,
+      close_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (template_id) REFERENCES form_templates(id),
+      FOREIGN KEY (template_version_id) REFERENCES form_template_versions(id),
+      FOREIGN KEY (assigned_by_user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS form_assignment_user_types (
+      assignment_id INTEGER NOT NULL,
+      user_type_id INTEGER NOT NULL,
+      PRIMARY KEY (assignment_id, user_type_id),
+      FOREIGN KEY (assignment_id) REFERENCES form_assignments(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_type_id) REFERENCES user_types(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS form_assignment_users (
+      assignment_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      PRIMARY KEY (assignment_id, user_id),
+      FOREIGN KEY (assignment_id) REFERENCES form_assignments(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS form_responses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      assignment_id INTEGER NOT NULL,
+      template_id INTEGER NOT NULL,
+      template_version_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'submitted')),
+      first_submitted_at TEXT,
+      last_submitted_at TEXT,
+      last_edited_at TEXT,
+      submitted_to_user_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (assignment_id, user_id),
+      FOREIGN KEY (assignment_id) REFERENCES form_assignments(id),
+      FOREIGN KEY (template_id) REFERENCES form_templates(id),
+      FOREIGN KEY (template_version_id) REFERENCES form_template_versions(id),
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (submitted_to_user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS form_response_answers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      response_id INTEGER NOT NULL,
+      field_id INTEGER NOT NULL,
+      value_text TEXT NOT NULL DEFAULT '',
+      value_json TEXT,
+      FOREIGN KEY (response_id) REFERENCES form_responses(id) ON DELETE CASCADE,
+      FOREIGN KEY (field_id) REFERENCES form_template_fields(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS form_response_revisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      response_id INTEGER NOT NULL,
+      edited_by_user_id INTEGER,
+      revision_number INTEGER NOT NULL DEFAULT 1,
+      change_summary TEXT NOT NULL DEFAULT '',
+      snapshot_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (response_id) REFERENCES form_responses(id) ON DELETE CASCADE,
+      FOREIGN KEY (edited_by_user_id) REFERENCES users(id)
+    );
+  `);
+
+  // Migration: older DBs may still have a CHECK constraint without newer form field types.
+  const fieldTableSql = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'form_template_fields'")
+    .get() as { sql?: string } | undefined;
+  const hasAttachment = fieldTableSql?.sql?.includes("'attachment'") ?? false;
+  const hasSignature = fieldTableSql?.sql?.includes("'signature'") ?? false;
+  if (!hasAttachment || !hasSignature) {
+    db.pragma('foreign_keys = OFF');
+    try {
+      db.exec('BEGIN');
+      db.exec(`
+        CREATE TABLE form_template_fields_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          template_version_id INTEGER NOT NULL,
+          field_key TEXT NOT NULL,
+          label TEXT NOT NULL,
+          help_text TEXT NOT NULL DEFAULT '',
+          field_type TEXT NOT NULL DEFAULT 'short_text'
+            CHECK (field_type IN ('short_text', 'long_text', 'number', 'date', 'single_select', 'multi_select', 'checkbox', 'attachment', 'signature')),
+          is_required INTEGER NOT NULL DEFAULT 0,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          config_json TEXT NOT NULL DEFAULT '{}',
+          FOREIGN KEY (template_version_id) REFERENCES form_template_versions(id) ON DELETE CASCADE
+        );
+
+        INSERT INTO form_template_fields_new (
+          id, template_version_id, field_key, label, help_text, field_type, is_required, sort_order, config_json
+        )
+        SELECT
+          id, template_version_id, field_key, label, help_text, field_type, is_required, sort_order, config_json
+        FROM form_template_fields;
+
+        DROP TABLE form_template_fields;
+        ALTER TABLE form_template_fields_new RENAME TO form_template_fields;
+      `);
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
   }
 }
 
@@ -447,6 +643,46 @@ function seedIfEmpty(): void {
   db.prepare(
     'INSERT INTO activity_feed (entity_type, entity_id, message, actor_user_id) VALUES (?, ?, ?, ?)'
   ).run('DOCUMENT', 2, 'Due date updated and reissued to coaches and teachers.', 3);
+
+  // Seed categories
+  const insertCategory = db.prepare(
+    'INSERT OR IGNORE INTO categories (name, color, description) VALUES (?, ?, ?)'
+  );
+  insertCategory.run('Compliance', '#3B82F6', 'Legal and regulatory compliance documents');
+  insertCategory.run('Training', '#10B981', 'Training materials and procedures');
+  insertCategory.run('Safety', '#F59E0B', 'Safety protocols and emergency procedures');
+  insertCategory.run('Policy', '#EF4444', 'Organizational policies and guidelines');
+  insertCategory.run('Reference', '#8B5CF6', 'Reference materials and documentation');
+
+  // Seed tags
+  const insertTag = db.prepare(
+    'INSERT OR IGNORE INTO tags (name, color, description) VALUES (?, ?, ?)'
+  );
+  insertTag.run('Urgent', '#EF4444', 'Requires immediate attention');
+  insertTag.run('Review', '#F59E0B', 'Needs review or approval');
+  insertTag.run('New', '#10B981', 'Recently added or updated');
+  insertTag.run('Archived', '#6B7280', 'No longer active');
+  insertTag.run('Draft', '#8B5CF6', 'Work in progress');
+
+  // Assign some categories and tags to existing documents
+  const insertDocCategory = db.prepare(
+    'INSERT OR IGNORE INTO document_categories (document_id, category_id) VALUES (?, ?)'
+  );
+  const insertDocTag = db.prepare(
+    'INSERT OR IGNORE INTO document_tags (document_id, tag_id) VALUES (?, ?)'
+  );
+
+  // Document 1: Security Plan -> Safety category, Urgent tag
+  insertDocCategory.run(1, 3);
+  insertDocTag.run(1, 1);
+
+  // Document 2: Crisis Response -> Safety category, Review tag
+  insertDocCategory.run(2, 3);
+  insertDocTag.run(2, 2);
+
+  // Document 3: Risk Management -> Policy category, New tag
+  insertDocCategory.run(3, 4);
+  insertDocTag.run(3, 3);
 
   seedTrend();
 }
