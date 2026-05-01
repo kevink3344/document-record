@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Plus, Trash2, GripVertical } from 'lucide-react';
 import { apiRequest } from '../lib/api';
-import type { FormFieldType, FormTemplateDetail, FormTemplateField } from '../types';
+import type { FormFieldType, FormTemplateDetail } from '../types';
 
 const FIELD_TYPES: { value: FormFieldType; label: string }[] = [
   { value: 'short_text', label: 'Short Text' },
