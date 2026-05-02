@@ -5,10 +5,9 @@ type GreetingCardProps = {
   activeUser: LookupUser | null;
   greetingName: string;
   greetingUserType: string;
-  activeTeamNames: string[];
 };
 
-export function GreetingCard({ activeUser, greetingName, greetingUserType, activeTeamNames }: GreetingCardProps) {
+export function GreetingCard({ activeUser, greetingName, greetingUserType }: GreetingCardProps) {
   if (!activeUser) return null;
   const showUserType = Boolean(greetingUserType.trim());
 

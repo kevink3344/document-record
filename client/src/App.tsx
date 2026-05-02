@@ -1045,18 +1045,18 @@ function App() {
               <p className="mt-6 max-w-md text-base leading-relaxed text-slate-200/90">
                 {loginPageText}
               </p>
-              <div className="mt-auto grid gap-3 pt-8 sm:grid-cols-3">
+              <div className="mt-auto grid grid-cols-3 gap-2 pt-8">
                 <div className="border border-white/15 bg-white/10 p-3">
-                  <p className="font-mono text-3xl font-bold">{lookups.teams.length}</p>
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-200/80">Teams</p>
+                  <p className="font-mono text-2xl font-bold md:text-3xl">{lookups.teams.length}</p>
+                  <p className="text-[10px] uppercase tracking-[0.15em] text-slate-200/80">Teams</p>
                 </div>
                 <div className="border border-white/15 bg-white/10 p-3">
-                  <p className="font-mono text-3xl font-bold">{lookups.userTypes.length}</p>
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-200/80">User Types</p>
+                  <p className="font-mono text-2xl font-bold md:text-3xl">{lookups.userTypes.length}</p>
+                  <p className="text-[10px] uppercase tracking-[0.15em] text-slate-200/80">Types</p>
                 </div>
                 <div className="border border-white/15 bg-white/10 p-3">
-                  <p className="font-mono text-3xl font-bold">{lookups.users.length}</p>
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-200/80">Active Users</p>
+                  <p className="font-mono text-2xl font-bold md:text-3xl">{lookups.users.length}</p>
+                  <p className="text-[10px] uppercase tracking-[0.15em] text-slate-200/80">Active</p>
                 </div>
               </div>
             </div>
@@ -2121,7 +2121,7 @@ function App() {
                 )}
               </section>
             ) : isMyFormsPage ? (
-              <section className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-4 dark:border-slate-700">
+              <section className="-mx-4 w-[calc(100%+2rem)] border-y border-slate-200 bg-[var(--theme-card)] p-4 sm:mx-0 sm:w-auto sm:rounded-[3px] sm:border dark:border-slate-700">
                 <div className="mb-3">
                   <h3 className="text-sm font-semibold uppercase">My Forms</h3>
                   <p className="text-xs text-slate-500">Forms assigned to you.</p>
@@ -2136,50 +2136,46 @@ function App() {
                     {userFormAssignments.map((asgn) => (
                       <div
                         key={asgn.id}
-                        className="rounded-[3px] border border-slate-200 p-3 dark:border-slate-700"
+                        className="rounded-[3px] border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900"
                       >
-                        <div className="flex items-center justify-between gap-3">
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              const detail = await apiRequest<FormAssignmentDetail>(
-                                `/form-assignments/${asgn.id}?actorUserId=${activeUser!.id}`
-                              );
-                              const resp = await apiRequest<FormResponse>(
-                                `/form-responses?assignmentId=${asgn.id}&userId=${activeUser!.id}`
-                              );
-                              setActiveFillAssignment(detail ?? null);
-                              setActiveFillResponse(resp ?? null);
-                            }}
-                            className="min-w-0 flex-1 text-left"
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const detail = await apiRequest<FormAssignmentDetail>(
+                              `/form-assignments/${asgn.id}?actorUserId=${activeUser!.id}`
+                            );
+                            const resp = await apiRequest<FormResponse>(
+                              `/form-responses?assignmentId=${asgn.id}&userId=${activeUser!.id}`
+                            );
+                            setActiveFillAssignment(detail ?? null);
+                            setActiveFillResponse(resp ?? null);
+                          }}
+                          className="w-full text-left"
+                        >
+                          <p className="text-sm font-semibold leading-snug sm:text-base">
+                            {asgn.title_override ?? asgn.template_title}
+                          </p>
+                          {asgn.instructions && (
+                            <p className="mt-1 text-xs text-slate-500 line-clamp-2">{asgn.instructions}</p>
+                          )}
+                          {asgn.close_at && (
+                            <p className="mt-2 text-xs text-slate-500">
+                              Due: {new Date(asgn.close_at).toLocaleDateString()}
+                            </p>
+                          )}
+                        </button>
+                        <div className="mt-3 flex items-center justify-between gap-2">
+                          <span
+                            className={`inline-flex w-fit rounded-[3px] px-2 py-1 text-xs font-semibold ${
+                              asgn.response_status === 'submitted'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                : asgn.response_status === 'draft'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                : 'bg-slate-100 text-slate-600 dark:bg-slate-800'
+                            }`}
                           >
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="text-sm font-semibold">
-                                  {asgn.title_override ?? asgn.template_title}
-                                </p>
-                                {asgn.instructions && (
-                                  <p className="mt-0.5 text-xs text-slate-500 line-clamp-2">{asgn.instructions}</p>
-                                )}
-                                {asgn.close_at && (
-                                  <p className="mt-0.5 text-xs text-slate-500">
-                                    Due: {new Date(asgn.close_at).toLocaleDateString()}
-                                  </p>
-                                )}
-                              </div>
-                              <span
-                                className={`shrink-0 rounded-[3px] px-1.5 py-0.5 text-xs font-semibold ${
-                                  asgn.response_status === 'submitted'
-                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                    : asgn.response_status === 'draft'
-                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                                    : 'bg-slate-100 text-slate-600 dark:bg-slate-800'
-                                }`}
-                              >
-                                {asgn.response_status ?? 'Not started'}
-                              </span>
-                            </div>
-                          </button>
+                            {asgn.response_status ?? 'Not started'}
+                          </span>
                           <button
                             type="button"
                             onClick={() => void handleDeleteUserForm(asgn.id)}

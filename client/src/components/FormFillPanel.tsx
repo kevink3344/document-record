@@ -320,7 +320,7 @@ export function FormFillPanel({ assignment, fields, existingResponse, currentUse
 
         {/* Instructions */}
         {assignment.instructions && (
-          <div className="mb-3 rounded-[3px] border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-900 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
+          <div className="mb-4 rounded-[3px] border border-blue-100 bg-blue-50 px-4 py-3 text-base font-medium leading-relaxed text-blue-900 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200 md:text-lg">
             {assignment.instructions}
           </div>
         )}

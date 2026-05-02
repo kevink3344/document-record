@@ -23,6 +23,7 @@ type SidebarNavProps = {
   nav: string[];
   activePage: string;
   sidebarCollapsed: boolean;
+  navBadges?: Partial<Record<string, number>>;
   onSelectPage: (page: string) => void;
   onToggleSidebar: () => void;
 };
@@ -49,7 +50,7 @@ const navIconMap: Record<string, ReactNode> = {
 
 const APP_VERSION = '1.0.0';
 
-export function SidebarNav({ nav, activePage, sidebarCollapsed, onSelectPage, onToggleSidebar }: SidebarNavProps) {
+export function SidebarNav({ nav, activePage, sidebarCollapsed, navBadges, onSelectPage, onToggleSidebar }: SidebarNavProps) {
   return (
     <>
       {/* Mobile overlay backdrop - shown when menu is open on mobile */}
@@ -71,6 +72,9 @@ export function SidebarNav({ nav, activePage, sidebarCollapsed, onSelectPage, on
         </div>
         <nav className="space-y-1 p-2 text-sm">
           {nav.map((item) => (
+            (() => {
+              const badgeCount = navBadges?.[item] ?? 0;
+              return (
             <button
               key={item}
               onClick={() => onSelectPage(item)}
@@ -78,7 +82,14 @@ export function SidebarNav({ nav, activePage, sidebarCollapsed, onSelectPage, on
             >
               {navIconMap[item] ?? <LayoutGrid size={15} />}
               {!sidebarCollapsed && <span className="ml-2">{item}</span>}
+              {!sidebarCollapsed && badgeCount > 0 && (
+                <span className="ml-auto rounded-full bg-sky-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                  {badgeCount}
+                </span>
+              )}
             </button>
+              );
+            })()
           ))}
         </nav>
         <div className="absolute bottom-0 left-0 right-0 border-t border-slate-500 p-3 text-center text-[10px] uppercase tracking-widest text-slate-400">
@@ -96,6 +107,9 @@ export function SidebarNav({ nav, activePage, sidebarCollapsed, onSelectPage, on
             </div>
             <nav className="space-y-1 p-2 text-sm">
               {nav.map((item) => (
+                (() => {
+                  const badgeCount = navBadges?.[item] ?? 0;
+                  return (
                 <button
                   key={item}
                   onClick={() => onSelectPage(item)}
@@ -104,7 +118,14 @@ export function SidebarNav({ nav, activePage, sidebarCollapsed, onSelectPage, on
                 >
                   {navIconMap[item] ?? <LayoutGrid size={15} />}
                   {!sidebarCollapsed && <span className="ml-2">{item}</span>}
+                  {!sidebarCollapsed && badgeCount > 0 && (
+                    <span className="ml-auto rounded-full bg-sky-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                      {badgeCount}
+                    </span>
+                  )}
                 </button>
+                  );
+                })()
               ))}
             </nav>
             <div className="absolute bottom-0 left-0 right-0 border-t border-slate-500 p-3 text-center text-[10px] uppercase tracking-widest text-slate-400">
