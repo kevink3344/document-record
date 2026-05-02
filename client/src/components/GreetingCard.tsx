@@ -25,9 +25,6 @@ export function GreetingCard({ activeUser, greetingName, greetingUserType, activ
           </span>
         )}
       </p>
-      <p className="mt-1 text-xs text-slate-500">
-        {activeTeamNames.length ? activeTeamNames.join(' • ') : 'No teams assigned'}
-      </p>
     </section>
   );
 }
