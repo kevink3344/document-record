@@ -1050,12 +1050,12 @@ app.post('/api/register', (req, res) => {
   const { fullName, email, schoolId, userTypeId } = req.body as {
     fullName: string;
     email: string;
-    schoolId: number;
-    userTypeId: number;
+    schoolId?: number | null;
+    userTypeId?: number | null;
   };
 
-  if (!fullName?.trim() || !email?.trim() || !schoolId || !userTypeId) {
-    return res.status(400).json({ error: 'fullName, email, schoolId and userTypeId are required' });
+  if (!fullName?.trim() || !email?.trim()) {
+    return res.status(400).json({ error: 'fullName and email are required' });
   }
 
   const result = db
@@ -1063,7 +1063,7 @@ app.post('/api/register', (req, res) => {
       `INSERT INTO users (full_name, email, role, school_id, user_type_id)
        VALUES (?, ?, 'USER', ?, ?)`
     )
-    .run(fullName.trim(), email.trim().toLowerCase(), schoolId, userTypeId);
+    .run(fullName.trim(), email.trim().toLowerCase(), schoolId ?? null, userTypeId ?? null);
 
   const user = db
     .prepare(
@@ -2349,10 +2349,71 @@ app.get('/api/form-assignments/for-user', (req, res) => {
       UNION
       SELECT assignment_id FROM form_assignment_user_types WHERE user_type_id = ?
     )
+      AND fa.id NOT IN (
+        SELECT assignment_id FROM form_assignment_dismissals WHERE user_id = ?
+      )
     ORDER BY fa.created_at DESC
-  `).all(userId, userId, user.user_type_id ?? -1);
+  `).all(userId, userId, user.user_type_id ?? -1, userId);
 
   res.json(rows);
+});
+
+app.delete('/api/form-assignments/:id/for-user', (req, res) => {
+  const db = getDb();
+  const assignmentId = toId(req.params.id);
+  const actorUserId = req.query.actorUserId ? toId(String(req.query.actorUserId)) : 0;
+  const userId = req.query.userId ? toId(String(req.query.userId)) : 0;
+
+  if (!assignmentId || !actorUserId || !userId) {
+    return res.status(400).json({ error: 'assignmentId, actorUserId, and userId are required' });
+  }
+
+  const actor = db.prepare('SELECT id, role, user_type_id FROM users WHERE id = ? AND is_active = 1').get(actorUserId) as {
+    id: number;
+    role: string;
+    user_type_id: number | null;
+  } | undefined;
+  if (!actor) return res.status(404).json({ error: 'Actor not found' });
+  if (actor.role !== 'USER' || actor.id !== userId) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  const assignment = db.prepare(`
+    SELECT fa.id, ftv.title AS template_title
+    FROM form_assignments fa
+    INNER JOIN form_template_versions ftv ON ftv.id = fa.template_version_id
+    WHERE fa.id = ?
+      AND fa.id IN (
+        SELECT assignment_id FROM form_assignment_users WHERE user_id = ?
+        UNION
+        SELECT assignment_id FROM form_assignment_user_types WHERE user_type_id = ?
+      )
+  `).get(assignmentId, userId, actor.user_type_id ?? -1) as { id: number; template_title: string } | undefined;
+
+  if (!assignment) return res.status(404).json({ error: 'Assignment not found' });
+
+  try {
+    const response = db.prepare('SELECT id FROM form_responses WHERE assignment_id = ? AND user_id = ?').get(assignmentId, userId) as { id: number } | undefined;
+
+    db.prepare(
+      `INSERT INTO form_assignment_dismissals (assignment_id, user_id)
+       VALUES (?, ?)
+       ON CONFLICT(assignment_id, user_id) DO UPDATE SET dismissed_at = datetime('now')`
+    ).run(assignmentId, userId);
+
+    if (response) {
+      db.prepare('DELETE FROM form_responses WHERE id = ?').run(response.id);
+    }
+
+    db.prepare(
+      `INSERT INTO activity_feed (entity_type, entity_id, message, actor_user_id)
+       VALUES ('FORM_ASSIGNMENT', ?, ?, ?)`
+    ).run(assignmentId, `Form "${assignment.template_title}" removed from My Forms by user ${userId}.`, actorUserId);
+
+    res.json({ success: true });
+  } catch (error) {
+    sendSqlError(res, error);
+  }
 });
 
 app.get('/api/form-assignments/:id', (req, res) => {

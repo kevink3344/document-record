@@ -10,6 +10,7 @@ import {
   Search,
   Settings,
   Sun,
+  Trash2,
 } from 'lucide-react';
 import { DocumentDetailsPanel } from './components/DocumentDetailsPanel';
 import { EditPanel } from './components/EditPanel';
@@ -388,20 +389,6 @@ function App() {
     return (activeUser?.user_type_name ?? '').trim();
   }, [activeUser?.user_type_name]);
 
-  const activeTeamNames = useMemo(() => {
-    if (!activeUser) return [] as string[];
-    if (activeUser.role === 'ADMINISTRATOR') {
-      return teams.map((team) => team.name).filter(Boolean);
-    }
-    if (activeUser.role === 'TEAM_MANAGER') {
-      return teams
-        .filter((team) => team.manager_user_ids.includes(activeUser.id))
-        .map((team) => team.name)
-        .filter(Boolean);
-    }
-    return Array.from(new Set(documents.map((doc) => doc.team_name).filter(Boolean)));
-  }, [activeUser, teams, documents]);
-
   const handleAcknowledge = async () => {
     if (!selectedDocId || !activeUser) return;
     setSignatureModalOpen(true);
@@ -718,6 +705,30 @@ function App() {
     if (data) setUserFormAssignments(data);
   };
 
+  const handleDeleteUserForm = async (assignmentId: number) => {
+    if (!activeUser || activeUser.role !== 'USER') return;
+
+    const confirmed = window.confirm(
+      'Delete this form from your My Forms list? This will also remove any saved response for this form.'
+    );
+    if (!confirmed) return;
+
+    try {
+      await apiRequest(
+        `/form-assignments/${assignmentId}/for-user?actorUserId=${activeUser.id}&userId=${activeUser.id}`,
+        { method: 'DELETE' }
+      );
+      if (activeFillAssignment?.id === assignmentId) {
+        setActiveFillAssignment(null);
+        setActiveFillResponse(null);
+      }
+      await refreshUserForms();
+      updateNotice('Form deleted');
+    } catch (error) {
+      updateNotice(error instanceof Error ? error.message : 'Delete failed');
+    }
+  };
+
   useEffect(() => {
     if (isTemplatesPage) void refreshFormTemplates();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -900,10 +911,6 @@ function App() {
       setAuthNotice('Full name and email are required.');
       return;
     }
-    if (!registerForm.schoolId || !registerForm.userTypeId) {
-      setAuthNotice('Please select both school and user type.');
-      return;
-    }
 
     setRegistering(true);
     try {
@@ -912,8 +919,8 @@ function App() {
         body: JSON.stringify({
           fullName: registerForm.fullName,
           email: registerForm.email,
-          schoolId: Number(registerForm.schoolId),
-          userTypeId: Number(registerForm.userTypeId),
+          schoolId: registerForm.schoolId ? Number(registerForm.schoolId) : null,
+          userTypeId: registerForm.userTypeId ? Number(registerForm.userTypeId) : null,
         }),
       });
 
@@ -1037,7 +1044,7 @@ function App() {
                     onChange={(e) => setRegisterForm((prev) => ({ ...prev, schoolId: e.target.value }))}
                     className="w-full border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
                   >
-                    <option value="">Select school</option>
+                    <option value="">Select school (optional)</option>
                     {lookups.schools.map((school) => (
                       <option key={school.id} value={school.id}>
                         {school.name}
@@ -1049,7 +1056,7 @@ function App() {
                     onChange={(e) => setRegisterForm((prev) => ({ ...prev, userTypeId: e.target.value }))}
                     className="w-full border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
                   >
-                    <option value="">Select user type</option>
+                    <option value="">Select user type (optional)</option>
                     {lookups.userTypes.map((userType) => (
                       <option key={userType.id} value={userType.id}>
                         {userType.name}
@@ -1104,7 +1111,7 @@ function App() {
               </div>
 
               <div className="ml-auto flex items-center gap-2">
-                <div className="hidden rounded-[3px] border border-white/30 bg-white/10 px-2 py-1 text-xs md:block">
+                <div className="hidden rounded-[3px] border border-white/30 bg-white/10 px-2 py-2 text-xs md:block">
                   {activeUser.full_name} ({activeUser.role})
                 </div>
                 <button
@@ -1144,7 +1151,6 @@ function App() {
               activeUser={activeUser}
               greetingName={greetingName}
               greetingUserType={greetingUserType}
-              activeTeamNames={activeTeamNames}
             />
 
             {settingsOpen && (
@@ -2006,47 +2012,63 @@ function App() {
                 ) : (
                   <div className="space-y-2">
                     {userFormAssignments.map((asgn) => (
-                      <button
+                      <div
                         key={asgn.id}
-                        onClick={async () => {
-                          const detail = await apiRequest<FormAssignmentDetail>(
-                            `/form-assignments/${asgn.id}?actorUserId=${activeUser!.id}`
-                          );
-                          const resp = await apiRequest<FormResponse>(
-                            `/form-responses?assignmentId=${asgn.id}&userId=${activeUser!.id}`
-                          );
-                          setActiveFillAssignment(detail ?? null);
-                          setActiveFillResponse(resp ?? null);
-                        }}
-                        className="w-full rounded-[3px] border border-slate-200 p-3 text-left hover:border-slate-400 dark:border-slate-700 dark:hover:border-slate-500"
+                        className="rounded-[3px] border border-slate-200 p-3 dark:border-slate-700"
                       >
                         <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold">
-                              {asgn.title_override ?? asgn.template_title}
-                            </p>
-                            {asgn.instructions && (
-                              <p className="mt-0.5 text-xs text-slate-500 line-clamp-2">{asgn.instructions}</p>
-                            )}
-                            {asgn.close_at && (
-                              <p className="mt-0.5 text-xs text-slate-500">
-                                Due: {new Date(asgn.close_at).toLocaleDateString()}
-                              </p>
-                            )}
-                          </div>
-                          <span
-                            className={`shrink-0 rounded-[3px] px-1.5 py-0.5 text-xs font-semibold ${
-                              asgn.response_status === 'submitted'
-                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                : asgn.response_status === 'draft'
-                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                                : 'bg-slate-100 text-slate-600 dark:bg-slate-800'
-                            }`}
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const detail = await apiRequest<FormAssignmentDetail>(
+                                `/form-assignments/${asgn.id}?actorUserId=${activeUser!.id}`
+                              );
+                              const resp = await apiRequest<FormResponse>(
+                                `/form-responses?assignmentId=${asgn.id}&userId=${activeUser!.id}`
+                              );
+                              setActiveFillAssignment(detail ?? null);
+                              setActiveFillResponse(resp ?? null);
+                            }}
+                            className="min-w-0 flex-1 text-left"
                           >
-                            {asgn.response_status ?? 'Not started'}
-                          </span>
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold">
+                                  {asgn.title_override ?? asgn.template_title}
+                                </p>
+                                {asgn.instructions && (
+                                  <p className="mt-0.5 text-xs text-slate-500 line-clamp-2">{asgn.instructions}</p>
+                                )}
+                                {asgn.close_at && (
+                                  <p className="mt-0.5 text-xs text-slate-500">
+                                    Due: {new Date(asgn.close_at).toLocaleDateString()}
+                                  </p>
+                                )}
+                              </div>
+                              <span
+                                className={`shrink-0 rounded-[3px] px-1.5 py-0.5 text-xs font-semibold ${
+                                  asgn.response_status === 'submitted'
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                    : asgn.response_status === 'draft'
+                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                    : 'bg-slate-100 text-slate-600 dark:bg-slate-800'
+                                }`}
+                              >
+                                {asgn.response_status ?? 'Not started'}
+                              </span>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteUserForm(asgn.id)}
+                            className="shrink-0 rounded-[3px] p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                            title="Delete form"
+                            aria-label={`Delete ${asgn.title_override ?? asgn.template_title}`}
+                          >
+                            <Trash2 size={14} />
+                          </button>
                         </div>
-                      </button>
+                      </div>
                     ))}
                   </div>
                 )}

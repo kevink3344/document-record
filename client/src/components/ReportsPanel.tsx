@@ -202,6 +202,7 @@ export function ReportsPanel({ activeUser }: ReportsPanelProps) {
         const linkedUserTypes = docUserTypesMap.get(doc.id) ?? [];
         const applicableUsers = users.filter((user) => {
           if (user.role !== 'USER') return false;
+          if (user.user_type_id == null) return false;
           if (!linkedUserTypes.includes(user.user_type_id)) return false;
           if (filters.schoolId && String(user.school_id ?? '') !== filters.schoolId) return false;
           if (filters.userTypeId && String(user.user_type_id ?? '') !== filters.userTypeId) return false;
@@ -298,6 +299,7 @@ export function ReportsPanel({ activeUser }: ReportsPanelProps) {
     const scopedUsers = users
       .filter((user) => {
         if (user.role !== 'USER') return false;
+        if (user.user_type_id == null) return false;
         if (!linkedUserTypes.includes(user.user_type_id)) return false;
         if (filters.schoolId && String(user.school_id ?? '') !== filters.schoolId) return false;
         if (filters.userTypeId && String(user.user_type_id ?? '') !== filters.userTypeId) return false;

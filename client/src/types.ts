@@ -5,10 +5,10 @@ export type LookupUser = {
   full_name: string;
   email: string;
   role: Role;
-  school_name: string;
-  user_type_name: string;
-  school_id: number;
-  user_type_id: number;
+  school_name: string | null;
+  user_type_name: string | null;
+  school_id: number | null;
+  user_type_id: number | null;
 };
 
 export type LookupItem = { id: number; name: string };

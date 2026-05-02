@@ -442,6 +442,15 @@ function ensureFormTables(): void {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS form_assignment_dismissals (
+      assignment_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      dismissed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (assignment_id, user_id),
+      FOREIGN KEY (assignment_id) REFERENCES form_assignments(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS form_responses (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       assignment_id INTEGER NOT NULL,
@@ -492,6 +501,9 @@ function ensureFormTables(): void {
     .get() as { sql?: string } | undefined;
   const hasAttachment = fieldTableSql?.sql?.includes("'attachment'") ?? false;
   const hasSignature = fieldTableSql?.sql?.includes("'signature'") ?? false;
+  const dismissalTableExists = db
+    .prepare("SELECT 1 AS exists_flag FROM sqlite_master WHERE type = 'table' AND name = 'form_assignment_dismissals'")
+    .get() as { exists_flag?: number } | undefined;
   if (!hasAttachment || !hasSignature) {
     db.pragma('foreign_keys = OFF');
     try {
@@ -528,6 +540,19 @@ function ensureFormTables(): void {
     } finally {
       db.pragma('foreign_keys = ON');
     }
+  }
+
+  if (!dismissalTableExists?.exists_flag) {
+    db.exec(`
+      CREATE TABLE form_assignment_dismissals (
+        assignment_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        dismissed_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (assignment_id, user_id),
+        FOREIGN KEY (assignment_id) REFERENCES form_assignments(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
   }
 }
 

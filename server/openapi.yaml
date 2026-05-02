@@ -365,7 +365,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [fullName, email, schoolId, userTypeId]
+              required: [fullName, email]
               properties:
                 fullName:
                   type: string
@@ -373,8 +373,10 @@ paths:
                   type: string
                 schoolId:
                   type: integer
+                  nullable: true
                 userTypeId:
                   type: integer
+                  nullable: true
       responses:
         '201':
           description: Created
