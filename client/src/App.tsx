@@ -52,6 +52,8 @@ import type {
 const NAVY = '#004a7c';
 const ACCENT = '#0078d4';
 const THEME_STORAGE_KEY = 'docrecord-theme-mode';
+const DEFAULT_LOGIN_PAGE_TEXT =
+  'Choose an existing user profile or register a new account to enter the document workspace.';
 
 const getInitialDarkMode = () => {
   if (typeof window === 'undefined') return false;
@@ -75,6 +77,10 @@ function App() {
   const [disclaimerDraft, setDisclaimerDraft] = useState('');
   const [disclaimerUpdatedAt, setDisclaimerUpdatedAt] = useState<string | null>(null);
   const [savingDisclaimer, setSavingDisclaimer] = useState(false);
+  const [loginPageText, setLoginPageText] = useState(DEFAULT_LOGIN_PAGE_TEXT);
+  const [loginPageTextDraft, setLoginPageTextDraft] = useState(DEFAULT_LOGIN_PAGE_TEXT);
+  const [loginPageTextUpdatedAt, setLoginPageTextUpdatedAt] = useState<string | null>(null);
+  const [savingLoginPageText, setSavingLoginPageText] = useState(false);
   const [seedingTestData, setSeedingTestData] = useState(false);
   const [addingTestUser, setAddingTestUser] = useState(false);
   const [addingTestDocument, setAddingTestDocument] = useState(false);
@@ -82,6 +88,7 @@ function App() {
     seedTestData: true,
     addTestData: true,
     disclaimer: true,
+    loginPageText: true,
   });
   const toggleSettingSection = (key: string) =>
     setOpenSettingSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -291,6 +298,15 @@ function App() {
     setDisclaimerUpdatedAt(response.updated_at ?? null);
   };
 
+  const refreshLoginPageText = async () => {
+    const response = await apiRequest<{ text: string; updated_at: string | null }>('/settings/login-page-text');
+    if (!response) return;
+    const text = response.text?.trim() ? response.text : DEFAULT_LOGIN_PAGE_TEXT;
+    setLoginPageText(text);
+    setLoginPageTextDraft(text);
+    setLoginPageTextUpdatedAt(response.updated_at ?? null);
+  };
+
   const refreshUserSignatures = async (userId: number) => {
     setLoadingUserSignatures(true);
     try {
@@ -309,6 +325,7 @@ function App() {
       setAuthNotice('Connection failed. Start the backend server to load users and enable registration.');
     });
     refreshDisclaimer().catch(() => undefined);
+    refreshLoginPageText().catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -389,6 +406,41 @@ function App() {
     return (activeUser?.user_type_name ?? '').trim();
   }, [activeUser?.user_type_name]);
 
+  const navBadges = useMemo(() => {
+    if (!activeUser || activeUser.role !== 'USER') return {} as Partial<Record<string, number>>;
+    return {
+      'My Documents': documents.length,
+      'My Forms': userFormAssignments.length,
+    };
+  }, [activeUser, documents.length, userFormAssignments.length]);
+
+  const userFormSummary = useMemo(() => {
+    const total = userFormAssignments.length;
+    const completed = userFormAssignments.filter((asgn) => asgn.response_status === 'submitted').length;
+    const overdue = userFormAssignments.filter((asgn) => {
+      if (!asgn.close_at) return false;
+      const due = new Date(asgn.close_at);
+      return !Number.isNaN(due.getTime()) && due.getTime() < Date.now() && asgn.response_status !== 'submitted';
+    }).length;
+
+    return {
+      total,
+      assigned: total,
+      completed,
+      overdue,
+    };
+  }, [userFormAssignments]);
+
+  const userDashboardCards = useMemo(
+    () => [
+      ['Assigned', dashboard ? dashboard.summary.assigned + userFormSummary.assigned : 0],
+      ['Completed', dashboard ? dashboard.summary.completed + userFormSummary.completed : 0],
+      ['Overdue', dashboard ? dashboard.summary.overdue + userFormSummary.overdue : 0],
+      ['Total Docs & Forms', dashboard ? dashboard.summary.total_documents + userFormSummary.total : 0],
+    ],
+    [dashboard, userFormSummary]
+  );
+
   const handleAcknowledge = async () => {
     if (!selectedDocId || !activeUser) return;
     setSignatureModalOpen(true);
@@ -439,6 +491,27 @@ function App() {
       updateNotice(error instanceof Error ? error.message : 'Unable to save disclaimer');
     } finally {
       setSavingDisclaimer(false);
+    }
+  };
+
+  const saveLoginPageText = async () => {
+    setSavingLoginPageText(true);
+    try {
+      const response = await apiRequest<{ text: string; updated_at: string | null }>('/settings/login-page-text', {
+        method: 'PUT',
+        body: JSON.stringify({ text: loginPageTextDraft }),
+      });
+      if (response) {
+        const text = response.text?.trim() ? response.text : DEFAULT_LOGIN_PAGE_TEXT;
+        setLoginPageText(text);
+        setLoginPageTextDraft(text);
+        setLoginPageTextUpdatedAt(response.updated_at ?? null);
+      }
+      updateNotice('Login page text updated');
+    } catch (error) {
+      updateNotice(error instanceof Error ? error.message : 'Unable to save login page text');
+    } finally {
+      setSavingLoginPageText(false);
     }
   };
 
@@ -705,6 +778,12 @@ function App() {
     if (data) setUserFormAssignments(data);
   };
 
+  const refreshUserDocuments = async () => {
+    if (!activeUser) return;
+    const data = await apiRequest<DocumentItem[]>(`/documents?userId=${activeUser.id}`);
+    if (data) setDocuments(data);
+  };
+
   const handleDeleteUserForm = async (assignmentId: number) => {
     if (!activeUser || activeUser.role !== 'USER') return;
 
@@ -735,9 +814,13 @@ function App() {
   }, [isTemplatesPage]);
 
   useEffect(() => {
-    if (isMyFormsPage) void refreshUserForms();
+    if (activeUser?.role === 'USER') {
+      void Promise.all([refreshUserForms(), refreshUserDocuments()]);
+      return;
+    }
+    setUserFormAssignments([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMyFormsPage]);
+  }, [activeUser?.id, activeUser?.role, isMyFormsPage]);
   const myCompletedDocuments = useMemo(
     () => documents.filter((doc) => doc.status === 'COMPLETED'),
     [documents]
@@ -960,7 +1043,7 @@ function App() {
               <p className="mb-5 text-xs uppercase tracking-[0.28em] text-slate-200/80">Enterprise Staff Support</p>
               <h1 className="max-w-sm text-4xl font-bold leading-tight md:text-5xl">Sign in to DocRecord</h1>
               <p className="mt-6 max-w-md text-base leading-relaxed text-slate-200/90">
-                Choose an existing user profile or register a new account to enter the document workspace.
+                {loginPageText}
               </p>
               <div className="mt-auto grid gap-3 pt-8 sm:grid-cols-3">
                 <div className="border border-white/15 bg-white/10 p-3">
@@ -1086,6 +1169,7 @@ function App() {
           nav={nav}
           activePage={activePage}
           sidebarCollapsed={sidebarCollapsed}
+          navBadges={navBadges}
           onSelectPage={handleSelectPage}
           onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
         />
@@ -1713,7 +1797,7 @@ function App() {
                     <div>
                       <h3 className="text-sm font-semibold uppercase">Settings</h3>
                       <p className="mt-1 text-xs text-slate-500">
-                        Admin controls for test deployments and acknowledgment text.
+                        Admin controls for test deployments and page text customization.
                       </p>
                     </div>
 
@@ -1806,6 +1890,44 @@ function App() {
                               className="border border-blue-400 bg-blue-600 px-2 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               {savingDisclaimer ? 'Saving...' : 'Save Disclaimer'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Login Page Text */}
+                    <div className="rounded-[3px] border border-slate-200 dark:border-slate-700">
+                      <button
+                        onClick={() => toggleSettingSection('loginPageText')}
+                        className="flex w-full items-center justify-between px-3 py-2 text-xs font-semibold uppercase text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"
+                      >
+                        Login Page Text
+                        {openSettingSections.loginPageText ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      </button>
+                      {openSettingSections.loginPageText && (
+                        <div className="border-t border-slate-200 p-3 dark:border-slate-700">
+                          <p className="mb-2 text-xs text-slate-500">
+                            This text appears on the login screen beneath the "Sign in to DocRecord" title.
+                          </p>
+                          <textarea
+                            value={loginPageTextDraft}
+                            onChange={(e) => setLoginPageTextDraft(e.target.value)}
+                            rows={3}
+                            className="w-full border border-slate-300 px-2 py-2 text-xs dark:border-slate-700"
+                          />
+                          <div className="mt-2 flex items-center justify-between gap-2">
+                            <p className="text-[11px] text-slate-500">
+                              {loginPageTextUpdatedAt
+                                ? `Last updated ${new Date(loginPageTextUpdatedAt).toLocaleString()}`
+                                : 'No login page text update recorded yet.'}
+                            </p>
+                            <button
+                              onClick={saveLoginPageText}
+                              disabled={savingLoginPageText || loginPageTextDraft === loginPageText}
+                              className="border border-blue-400 bg-blue-600 px-2 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {savingLoginPageText ? 'Saving...' : 'Save Login Text'}
                             </button>
                           </div>
                         </div>
@@ -2137,12 +2259,7 @@ function App() {
               <>
                 {activeUser.role === 'USER' && (
                   <section className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                    {[
-                      ['Assigned', dashboard.summary.assigned],
-                      ['Completed', dashboard.summary.completed],
-                      ['Overdue', dashboard.summary.overdue],
-                      ['Total Docs', dashboard.summary.total_documents],
-                    ].map(([label, value]) => (
+                    {userDashboardCards.map(([label, value]) => (
                       <div key={label} className="rounded-[3px] border border-slate-200 bg-[var(--theme-card)] p-3 dark:border-slate-700">
                         <p className="text-xs uppercase text-slate-500">{label}</p>
                         <p className="font-mono text-2xl font-bold">{value}</p>

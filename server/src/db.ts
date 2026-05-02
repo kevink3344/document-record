@@ -356,11 +356,18 @@ function ensureAcknowledgmentSignatureColumns(): void {
 function ensureAppSettingsDefaults(): void {
   const defaultDisclaimer =
     'By signing this acknowledgment, you confirm that you have read and understood the document and agree to comply with its requirements.';
+  const defaultLoginPageText =
+    'Choose an existing user profile or register a new account to enter the document workspace.';
 
   db.prepare(
     `INSERT OR IGNORE INTO app_settings (key, value)
      VALUES ('acknowledgment_disclaimer', ?)`
   ).run(defaultDisclaimer);
+
+  db.prepare(
+    `INSERT OR IGNORE INTO app_settings (key, value)
+     VALUES ('login_page_text', ?)`
+  ).run(defaultLoginPageText);
 }
 
 function ensureUserSignatureColumns(): void {

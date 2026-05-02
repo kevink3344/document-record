@@ -171,6 +171,41 @@ app.put('/api/settings/disclaimer', (req, res) => {
   }
 });
 
+app.get('/api/settings/login-page-text', (_req, res) => {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT value, updated_at FROM app_settings WHERE key = 'login_page_text'")
+    .get() as { value?: string; updated_at?: string } | undefined;
+
+  res.json({
+    text: row?.value ?? '',
+    updated_at: row?.updated_at ?? null,
+  });
+});
+
+app.put('/api/settings/login-page-text', (req, res) => {
+  const db = getDb();
+  const { text } = req.body as { text?: string };
+  if (typeof text !== 'string') return res.status(400).json({ error: 'text is required' });
+
+  try {
+    db.prepare(
+      `INSERT INTO app_settings (key, value, updated_at)
+       VALUES ('login_page_text', ?, datetime('now'))
+       ON CONFLICT(key)
+       DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+    ).run(text.trim());
+
+    const updated = db
+      .prepare("SELECT value, updated_at FROM app_settings WHERE key = 'login_page_text'")
+      .get() as { value: string; updated_at: string };
+
+    res.json({ text: updated.value, updated_at: updated.updated_at });
+  } catch (error) {
+    sendSqlError(res, error);
+  }
+});
+
 app.post('/api/settings/seed-data', (req, res) => {
   const db = getDb();
   const { actorUserId } = req.body as { actorUserId?: number };
