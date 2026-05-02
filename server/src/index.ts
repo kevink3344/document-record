@@ -2019,6 +2019,9 @@ app.get('/api/form-templates', (req, res) => {
     return res.status(403).json({ error: 'Only Administrators and Team Managers can view templates' });
   }
 
+  // Admins should be able to view all templates across groups; non-admins keep active-only view.
+  const whereClause = actor.role === 'ADMINISTRATOR' ? '' : 'WHERE ft.is_active = 1';
+
   const rows = db.prepare(`
     SELECT ft.id, ft.created_by_user_id, ft.is_active, ft.created_at, ft.updated_at,
            u.full_name AS created_by_name,
@@ -2031,7 +2034,7 @@ app.get('/api/form-templates', (req, res) => {
       WHERE template_id = ft.id
       ORDER BY version_number DESC LIMIT 1
     )
-    WHERE ft.is_active = 1
+    ${whereClause}
     ORDER BY ft.updated_at DESC
   `).all();
 
