@@ -392,7 +392,7 @@ function App() {
   const nav = useMemo(() => {
     if (!activeUser) return [];
     if (activeUser.role === 'ADMINISTRATOR') {
-      return ['Dashboard', 'Teams', 'Users', 'User Types', 'Schools', 'Documents', 'Templates', 'Categories', 'Reports', 'Settings'];
+      return ['Dashboard', 'Teams', 'Users', 'User Types', 'Schools', 'Documents', 'Templates', 'Reports', 'Settings'];
     }
     if (activeUser.role === 'TEAM_MANAGER') return ['Dashboard', 'Documents', 'Templates', 'Activity', 'Reports'];
     return ['Dashboard', 'My Documents', 'My Forms', 'Signatures', 'History'];
@@ -716,7 +716,7 @@ function App() {
     }
   };
 
-  const isAdminPage = activeUser?.role === 'ADMINISTRATOR' && activePage !== 'Dashboard';
+  const isAdminPage = activeUser?.role === 'ADMINISTRATOR' && activePage !== 'Dashboard' && activePage !== 'Templates';
   const isReportsPage = activeUser?.role !== 'USER' && activePage === 'Reports';
   const isMyTeamDocsPage = activeUser?.role === 'TEAM_MANAGER' && activePage === 'Documents';
   const isUserMyDocumentsPage = activeUser?.role === 'USER' && activePage === 'My Documents';
@@ -729,45 +729,50 @@ function App() {
 
   const refreshFormTemplates = async () => {
     if (!activeUser) return;
-    const [templates, assignments] = await Promise.all([
-      apiRequest<FormTemplateListItem[]>(`/form-templates?actorUserId=${activeUser.id}`),
-      apiRequest<FormAssignment[]>(`/form-assignments?actorUserId=${activeUser.id}`),
-    ]);
-
-    if (templates) setFormTemplates(templates);
-
-    if (!assignments || assignments.length === 0) {
-      setTemplateAssignmentSummary({});
-      return;
+    try {
+      const templates = await apiRequest<FormTemplateListItem[]>(`/form-templates?actorUserId=${activeUser.id}`);
+      setFormTemplates(templates ?? []);
+    } catch {
+      setFormTemplates([]);
     }
 
-    const details = await Promise.all(
-      assignments.map((a) => apiRequest<FormAssignmentDetail>(`/form-assignments/${a.id}?actorUserId=${activeUser.id}`))
-    );
+    try {
+      const assignments = await apiRequest<FormAssignment[]>(`/form-assignments?actorUserId=${activeUser.id}`);
+      if (!assignments || assignments.length === 0) {
+        setTemplateAssignmentSummary({});
+        return;
+      }
 
-    const summaryByTemplate = new Map<number, { userTypeIds: Set<number>; userIds: Set<number>; assignmentCount: number }>();
-    details.forEach((d) => {
-      if (!d) return;
-      const current = summaryByTemplate.get(d.template_id) ?? {
-        userTypeIds: new Set<number>(),
-        userIds: new Set<number>(),
-        assignmentCount: 0,
-      };
-      d.userTypeIds.forEach((id) => current.userTypeIds.add(id));
-      d.userIds.forEach((id) => current.userIds.add(id));
-      current.assignmentCount += 1;
-      summaryByTemplate.set(d.template_id, current);
-    });
+      const details = await Promise.all(
+        assignments.map((a) => apiRequest<FormAssignmentDetail>(`/form-assignments/${a.id}?actorUserId=${activeUser.id}`))
+      );
 
-    const nextSummary: Record<number, { userTypeIds: number[]; userIds: number[]; assignmentCount: number }> = {};
-    summaryByTemplate.forEach((value, templateId) => {
-      nextSummary[templateId] = {
-        userTypeIds: Array.from(value.userTypeIds),
-        userIds: Array.from(value.userIds),
-        assignmentCount: value.assignmentCount,
-      };
-    });
-    setTemplateAssignmentSummary(nextSummary);
+      const summaryByTemplate = new Map<number, { userTypeIds: Set<number>; userIds: Set<number>; assignmentCount: number }>();
+      details.forEach((d) => {
+        if (!d) return;
+        const current = summaryByTemplate.get(d.template_id) ?? {
+          userTypeIds: new Set<number>(),
+          userIds: new Set<number>(),
+          assignmentCount: 0,
+        };
+        d.userTypeIds.forEach((id) => current.userTypeIds.add(id));
+        d.userIds.forEach((id) => current.userIds.add(id));
+        current.assignmentCount += 1;
+        summaryByTemplate.set(d.template_id, current);
+      });
+
+      const nextSummary: Record<number, { userTypeIds: number[]; userIds: number[]; assignmentCount: number }> = {};
+      summaryByTemplate.forEach((value, templateId) => {
+        nextSummary[templateId] = {
+          userTypeIds: Array.from(value.userTypeIds),
+          userIds: Array.from(value.userIds),
+          assignmentCount: value.assignmentCount,
+        };
+      });
+      setTemplateAssignmentSummary(nextSummary);
+    } catch {
+      setTemplateAssignmentSummary({});
+    }
   };
 
   const refreshUserForms = async () => {
@@ -1031,7 +1036,7 @@ function App() {
 
   if (!activeUserId || !activeUser) {
     return (
-      <div className="min-h-screen bg-[radial-gradient(circle_at_top,#e2ebf6_0%,#f1f5f9_38%,#f8fafc_100%)] p-4 md:p-8">
+      <div className="min-h-screen overflow-x-hidden bg-[radial-gradient(circle_at_top,#e2ebf6_0%,#f1f5f9_38%,#f8fafc_100%)] p-4 md:p-8">
         <div className="mx-auto grid min-h-[calc(100vh-2rem)] w-full max-w-6xl overflow-hidden rounded-[6px] border border-slate-200 bg-white shadow-xl md:grid-cols-2">
           <aside className="relative overflow-hidden bg-[linear-gradient(150deg,#002a4d_0%,#004a7c_55%,#0a3558_100%)] p-8 text-white md:p-10">
             <div className="absolute -right-12 -top-12 h-48 w-48 rounded-full bg-cyan-300/20 blur-2xl" />
@@ -1163,7 +1168,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--theme-app)] text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    <div className="min-h-screen overflow-x-hidden bg-[var(--theme-app)] text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <div className="flex min-h-screen">
         <SidebarNav
           nav={nav}
@@ -2030,9 +2035,9 @@ function App() {
                       return (
                       <div
                         key={tpl.id}
-                        className="flex items-center justify-between rounded-[3px] border border-slate-200 p-3 dark:border-slate-700"
+                        className="rounded-[3px] border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900 md:flex md:items-center md:justify-between md:p-3"
                       >
-                        <div>
+                        <div className="min-w-0">
                           <p className="text-sm font-semibold">{tpl.title}</p>
                           <p className="text-xs text-slate-500">
                             v{tpl.version_number} ·{' '}
@@ -2062,7 +2067,7 @@ function App() {
                             <p className="mt-1 text-[11px] text-slate-400">No assignments yet</p>
                           )}
                         </div>
-                        <div className="flex gap-2">
+                        <div className="mt-3 flex flex-wrap gap-2 md:mt-0 md:flex-nowrap">
                           <button
                             onClick={async () => {
                               const detail = await apiRequest<FormTemplateDetail>(`/form-templates/${tpl.id}?actorUserId=${activeUser!.id}`);
